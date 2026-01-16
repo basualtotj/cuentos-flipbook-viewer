@@ -2,9 +2,15 @@ const http = require('http');
 const mysql = require('mysql2/promise');
 const crypto = require('crypto');
 
+// ==================
+// CONFIGURACIÓN
+// ==================
 const PORT = process.env.PORT || 3000;
 const MAIN_DOMAIN = 'cuentosparasiempre.com';
 
+// ==================
+// DB POOL
+// ==================
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -15,25 +21,26 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
-// Generar subdomain único desde nombre
-function generarSubdomain(nombre) {
-  const normalizado = (nombre || '')
+// ==================
+// HELPERS
+// ==================
+function normalizeSubdomain(value) {
+  return value
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
-
-  const sufijo = crypto.randomBytes(3).toString('hex');
-  return `${normalizado || 'cuento'}-${sufijo}`;
 }
 
-// Generar código único
 function generarCodigoUnico() {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
+// ==================
+// SERVER
+// ==================
 const server = http.createServer(async (req, res) => {
   const host = (req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
   const cleanHost = host.split(':')[0].trim();
@@ -42,136 +49,137 @@ const server = http.createServer(async (req, res) => {
     cleanHost === MAIN_DOMAIN ||
     cleanHost === `www.${MAIN_DOMAIN}`;
 
-  // API
+  // -------- API: verificar subdomain --------
+  if (req.method === 'POST' && req.url === '/api/verificar-subdomain') {
+    return handleVerificarSubdomain(req, res);
+  }
+
+  // -------- API: crear cuento --------
   if (req.method === 'POST' && req.url === '/api/crear-cuento') {
-    await handleCrearCuento(req, res);
-    return;
+    return handleCrearCuento(req, res);
   }
 
-  // Routing por host
+  // -------- Landing --------
   if (isMainDomain) {
-    serveLandingPage(req, res);
-    return;
+    return serveLandingPage(req, res);
   }
 
-  // Subdomain
-  const subdomain = cleanHost
-    .replace(`.${MAIN_DOMAIN}`, '')
-    .replace('www.', '')
-    .trim();
-
-  await serveFlipbook(req, res, subdomain);
+  // -------- Flipbook --------
+  const subdomain = cleanHost.replace(`.${MAIN_DOMAIN}`, '').replace(/^www\./, '');
+  return serveFlipbook(req, res, subdomain);
 });
 
-async function handleCrearCuento(req, res) {
+// ==================
+// HANDLERS
+// ==================
+async function handleVerificarSubdomain(req, res) {
   let body = '';
-
-  req.on('data', (chunk) => { body += chunk.toString(); });
-
+  req.on('data', c => body += c.toString());
   req.on('end', async () => {
     try {
-      const params = new URLSearchParams(body);
+      const { subdomain } = JSON.parse(body);
+      const limpio = normalizeSubdomain(subdomain);
 
-      // Campos actuales del form (puedes agregar más sin tocar BD)
-      const nombre = params.get('nombre')?.trim();
-      const edad = params.get('edad')?.trim();
-      const email = params.get('email')?.trim();
-
-      if (!nombre || !edad || !email) {
-        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ success: false, error: 'Faltan datos requeridos' }));
-        return;
-      }
-
-      const subdomain = generarSubdomain(nombre);
-      const codigoUnico = generarCodigoUnico();
-
-      // Guardamos TODO el formulario aquí (futuro-proof)
-      const payload = Object.fromEntries(params.entries());
-      payload.subdomain = subdomain;
-      payload.codigo_unico = codigoUnico;
-
-      await pool.execute(
-        `INSERT INTO cuentos
-          (subdomain, nombre_nino, codigo_unico, email_cliente, estado, payload_json)
-         VALUES
-          (?, ?, ?, ?, 'pendiente', ?)`,
-        [subdomain, nombre, codigoUnico, email, JSON.stringify(payload)]
+      const [rows] = await pool.execute(
+        'SELECT id FROM cuentos WHERE subdomain = ? LIMIT 1',
+        [limpio]
       );
 
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      const disponible = rows.length === 0;
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        success: true,
-        subdomain,
-        codigo: codigoUnico,
-        url: `https://${subdomain}.${MAIN_DOMAIN}`,
-        mensaje: 'Registro creado (pendiente). Próximo paso: pago + webhook.'
+        disponible,
+        subdomain: limpio,
+        mensaje: disponible
+          ? `El subdominio "${limpio}" está disponible`
+          : `El subdominio "${limpio}" ya está en uso`
       }));
-    } catch (error) {
-      console.error('Error creando cuento:', error);
-      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ success: false, error: 'Error del servidor' }));
+    } catch (e) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: 'Payload inválido' }));
     }
   });
 }
 
-function serveLandingPage(req, res) {
-  // (tu HTML igual, solo asegúrate que haga POST a /api/crear-cuento como ya lo tienes)
-  // Lo dejo intacto para no romper nada.
-  const html = `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cuentos Personalizados - Para Siempre</title>
-</head>
-<body>
-  <h1>Landing</h1>
-  <form id="cuentoForm">
-    <input name="nombre" placeholder="Nombre" required />
-    <select name="edad" required>
-      <option value="">Edad</option>
-      <option value="3">3</option>
-      <option value="4">4</option>
-      <option value="5">5</option>
-      <option value="6">6</option>
-      <option value="7">7</option>
-      <option value="8">8</option>
-    </select>
-    <input name="email" type="email" placeholder="Email" required />
-    <button type="submit" id="submitBtn">Crear</button>
-    <pre id="mensaje"></pre>
-  </form>
+async function handleCrearCuento(req, res) {
+  let body = '';
+  req.on('data', c => body += c.toString());
+  req.on('end', async () => {
+    try {
+      const params = new URLSearchParams(body);
 
-  <script>
-    document.getElementById('cuentoForm').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      const mensaje = document.getElementById('mensaje');
-      const btn = document.getElementById('submitBtn');
-      btn.disabled = true;
+      const nombre = params.get('nombre');
+      const edad = params.get('edad');
+      const email = params.get('email');
+      const subdomainRaw = params.get('subdomain');
 
-      try {
-        const formData = new FormData(this);
-        const r = await fetch('/api/crear-cuento', {
-          method: 'POST',
-          body: new URLSearchParams(formData)
-        });
-        const data = await r.json();
-        mensaje.textContent = JSON.stringify(data, null, 2);
-      } catch (err) {
-        mensaje.textContent = 'Error: ' + err.message;
-      } finally {
-        btn.disabled = false;
+      if (!nombre || !edad || !email || !subdomainRaw) {
+        res.writeHead(400);
+        return res.end(JSON.stringify({ error: 'Datos incompletos' }));
       }
-    });
-  </script>
-</body>
-</html>`;
 
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(html);
+      const subdomain = normalizeSubdomain(subdomainRaw);
+      const codigo = generarCodigoUnico();
+
+      await pool.execute(
+        `INSERT INTO cuentos 
+        (nombre_nino, edad_nino, email_cliente, subdomain, codigo_unico, estado)
+        VALUES (?, ?, ?, ?, ?, 'pendiente')`,
+        [nombre, edad, email, subdomain, codigo]
+      );
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        subdomain,
+        codigo,
+        url: `https://${subdomain}.${MAIN_DOMAIN}`,
+        mensaje: 'Registro creado (pendiente). Próximo paso: pago + webhook.'
+      }));
+    } catch (e) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: 'Error creando cuento' }));
+    }
+  });
 }
 
+// ==================
+// LANDING
+// ==================
+function serveLandingPage(req, res) {
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(`
+<!DOCTYPE html>
+<html>
+<body style="font-family:Arial;max-width:600px;margin:50px auto">
+<h1>Cuentos Personalizados</h1>
+<form id="f">
+<input name="nombre" placeholder="Nombre" required><br><br>
+<input name="edad" placeholder="Edad" required><br><br>
+<input name="email" placeholder="Email" required><br><br>
+<input name="subdomain" placeholder="Subdominio deseado" required><br><br>
+<button>Crear cuento</button>
+</form>
+<pre id="out"></pre>
+<script>
+document.getElementById('f').onsubmit = async e => {
+  e.preventDefault();
+  const r = await fetch('/api/crear-cuento', {
+    method:'POST',
+    body:new URLSearchParams(new FormData(e.target))
+  });
+  document.getElementById('out').textContent = await r.text();
+}
+</script>
+</body>
+</html>
+`);
+}
+
+// ==================
+// FLIPBOOK
+// ==================
 async function serveFlipbook(req, res, subdomain) {
   try {
     const [rows] = await pool.execute(
@@ -179,33 +187,28 @@ async function serveFlipbook(req, res, subdomain) {
       [subdomain]
     );
 
-    if (rows.length === 0) {
-      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(`<h1>404 - Cuento no encontrado</h1><p>${subdomain}</p>`);
-      return;
+    if (!rows.length) {
+      res.writeHead(404);
+      return res.end('Cuento no encontrado');
     }
 
-    const cuento = rows[0];
-
-    pool.execute('UPDATE cuentos SET vistas = vistas + 1 WHERE id = ?', [cuento.id])
-      .catch(() => {});
+    const c = rows[0];
+    pool.execute('UPDATE cuentos SET vistas = vistas + 1 WHERE id = ?', [c.id]);
 
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`
-      <h1>Cuento de ${cuento.nombre_nino}</h1>
-      <p><b>Subdomain:</b> ${cuento.subdomain}</p>
-      <p><b>Código:</b> ${cuento.codigo_unico}</p>
-      <p><b>Estado:</b> ${cuento.estado}</p>
-      <p><b>Vistas:</b> ${cuento.vistas}</p>
-      <p><b>Email:</b> ${cuento.email_cliente || 'N/A'}</p>
-    `);
-  } catch (error) {
-    console.error('DB Error:', error);
-    res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Error de servidor');
+<h1>Cuento de ${c.nombre_nino}</h1>
+<p>Subdomain: ${c.subdomain}</p>
+<p>Estado: ${c.estado}</p>
+<p>Vistas: ${c.vistas}</p>
+`);
+  } catch {
+    res.writeHead(500);
+    res.end('Error servidor');
   }
 }
 
+// ==================
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor en puerto ${PORT}`);
+  console.log('Servidor activo en puerto', PORT);
 });
