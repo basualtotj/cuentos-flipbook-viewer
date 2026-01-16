@@ -1,9 +1,11 @@
+// server.js
 const http = require('http');
 const mysql = require('mysql2/promise');
 
 const PORT = process.env.PORT || 3000;
-const MAIN_DOMAIN = 'cuentosparasiempre.com';
+const MAIN_DOMAIN = (process.env.MAIN_DOMAIN || 'cuentosparasiempre.com').toLowerCase();
 
+// Pool de conexiones
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -15,25 +17,45 @@ const pool = mysql.createPool({
 });
 
 const server = http.createServer(async (req, res) => {
-  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
-  
-  // Normalizar: remover puerto si existe y limpiar
-  const cleanHost = host.split(':')[0].trim();
-  
-  // Detectar si es dominio principal (con o sin www)
-  const isMainDomain = 
-    cleanHost === MAIN_DOMAIN || 
+  // Soporta proxy (Cloudflare / Easypanel / reverse proxy)
+  const hostHeader = (req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
+
+  // Normalizar host: quitar puerto y espacios
+  const cleanHost = hostHeader.split(':')[0].trim();
+
+  // 1) Si es dominio principal (con o sin www) => LANDING y TERMINA
+  const isMainDomain =
+    cleanHost === MAIN_DOMAIN ||
     cleanHost === `www.${MAIN_DOMAIN}`;
-  
+
   if (isMainDomain) {
     serveLandingPage(req, res);
-  } else {
-    // Extraer subdomain (todo lo que está antes del dominio principal)
-    const subdomain = cleanHost.replace(`.${MAIN_DOMAIN}`, '').replace('www.', '');
-    await serveFlipbook(req, res, subdomain);
+    return; // ✅ CLAVE: NO seguir a flipbook
   }
-});
 
+  // 2) Si NO es dominio principal => EXTRAER SUBDOMAIN y servir flipbook
+  // Ej:
+  //   juanito-test.cuentosparasiempre.com -> subdomain = "juanito-test"
+  //   www.juanito-test.cuentosparasiempre.com -> subdomain = "juanito-test" (por si llega con www delante)
+  let subdomain = cleanHost;
+
+  // Quitar el dominio base al final
+  if (subdomain.endsWith(`.${MAIN_DOMAIN}`)) {
+    subdomain = subdomain.slice(0, -(`.${MAIN_DOMAIN}`.length));
+  }
+
+  // Quitar un "www." al inicio (solo por limpieza)
+  subdomain = subdomain.replace(/^www\./, '');
+
+  // Si por alguna razón queda vacío, responde 400 (evita queries raras)
+  if (!subdomain) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Subdomain inválido');
+    return;
+  }
+
+  await serveFlipbook(req, res, subdomain);
+});
 
 function serveLandingPage(req, res) {
   const html = `<!DOCTYPE html>
@@ -72,9 +94,7 @@ function serveLandingPage(req, res) {
       margin-bottom: 30px;
       font-size: 1.1em;
     }
-    .form-group {
-      margin-bottom: 20px;
-    }
+    .form-group { margin-bottom: 20px; }
     label {
       display: block;
       margin-bottom: 8px;
@@ -105,9 +125,7 @@ function serveLandingPage(req, res) {
       cursor: pointer;
       transition: transform 0.2s;
     }
-    button:hover {
-      transform: translateY(-2px);
-    }
+    button:hover { transform: translateY(-2px); }
     .price {
       text-align: center;
       margin: 20px 0;
@@ -121,9 +139,7 @@ function serveLandingPage(req, res) {
       border-radius: 10px;
       margin: 20px 0;
     }
-    .features ul {
-      list-style: none;
-    }
+    .features ul { list-style: none; }
     .features li {
       padding: 8px 0;
       padding-left: 25px;
@@ -142,7 +158,7 @@ function serveLandingPage(req, res) {
   <div class="container">
     <h1>📚 Cuentos Personalizados</h1>
     <p class="subtitle">Un cuento único para tu hijo/a que durará para siempre</p>
-    
+
     <div class="features">
       <ul>
         <li>Cuento 100% personalizado con el nombre de tu hijo/a</li>
@@ -151,15 +167,15 @@ function serveLandingPage(req, res) {
         <li>URL personalizada única</li>
       </ul>
     </div>
-    
+
     <div class="price">$19.990</div>
-    
+
     <form id="cuentoForm" method="POST" action="/crear-cuento">
       <div class="form-group">
         <label for="nombre">Nombre del niño/a *</label>
         <input type="text" id="nombre" name="nombre" required placeholder="Ej: Sofía">
       </div>
-      
+
       <div class="form-group">
         <label for="edad">Edad *</label>
         <select id="edad" name="edad" required>
@@ -172,16 +188,16 @@ function serveLandingPage(req, res) {
           <option value="8">8 años</option>
         </select>
       </div>
-      
+
       <div class="form-group">
         <label for="email">Tu email *</label>
         <input type="email" id="email" name="email" required placeholder="tu@email.com">
       </div>
-      
+
       <button type="submit">Crear Mi Cuento Ahora</button>
     </form>
   </div>
-  
+
   <script>
     document.getElementById('cuentoForm').addEventListener('submit', function(e) {
       e.preventDefault();
@@ -190,7 +206,7 @@ function serveLandingPage(req, res) {
   </script>
 </body>
 </html>`;
-  
+
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -201,7 +217,7 @@ async function serveFlipbook(req, res, subdomain) {
       'SELECT * FROM cuentos WHERE subdomain = ? LIMIT 1',
       [subdomain]
     );
-    
+
     if (rows.length === 0) {
       res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(`<!DOCTYPE html>
@@ -212,12 +228,13 @@ async function serveFlipbook(req, res, subdomain) {
 </body></html>`);
       return;
     }
-    
+
     const cuento = rows[0];
-    
+
+    // Incrementar vistas (no bloqueante)
     pool.execute('UPDATE cuentos SET vistas = vistas + 1 WHERE id = ?', [cuento.id])
       .catch(err => console.error('Error updating views:', err));
-    
+
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${cuento.nombre_nino}</title></head>
@@ -231,14 +248,14 @@ async function serveFlipbook(req, res, subdomain) {
 <hr>
 <p><em>Sistema operativo - BD conectada</em></p>
 </body></html>`);
-    
   } catch (error) {
     console.error('DB Error:', error);
-    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Error de servidor');
   }
 }
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor en puerto ${PORT}`);
+  console.log(`MAIN_DOMAIN = ${MAIN_DOMAIN}`);
 });
