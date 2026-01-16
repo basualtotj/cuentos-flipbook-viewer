@@ -2,214 +2,162 @@ const http = require('http');
 const mysql = require('mysql2/promise');
 const crypto = require('crypto');
 
-// ==================
-// CONFIGURACIÓN
-// ==================
 const PORT = process.env.PORT || 3000;
 const MAIN_DOMAIN = 'cuentosparasiempre.com';
 
-// ==================
-// DB POOL
-// ==================
+// Pool MySQL
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+  connectionLimit: 10
 });
 
-// ==================
-// HELPERS
-// ==================
+// Utilidades
 function normalizeSubdomain(value) {
   return value
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, '-')
+    .replace(/[^a-z0-9-]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
 }
 
-function generarCodigoUnico() {
+function generateCode() {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
-// ==================
 // SERVER
-// ==================
 const server = http.createServer(async (req, res) => {
   const host = (req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
-  const cleanHost = host.split(':')[0].trim();
+  const cleanHost = host.split(':')[0];
 
   const isMainDomain =
     cleanHost === MAIN_DOMAIN ||
     cleanHost === `www.${MAIN_DOMAIN}`;
 
-  // -------- API: verificar subdomain --------
-  if (req.method === 'POST' && req.url === '/api/verificar-subdomain') {
-    return handleVerificarSubdomain(req, res);
-  }
-
-  // -------- API: crear cuento --------
   if (req.method === 'POST' && req.url === '/api/crear-cuento') {
     return handleCrearCuento(req, res);
   }
 
-  // -------- Landing --------
   if (isMainDomain) {
-    return serveLandingPage(req, res);
+    return serveLandingPage(res);
   }
 
-  // -------- Flipbook --------
-  const subdomain = cleanHost.replace(`.${MAIN_DOMAIN}`, '').replace(/^www\./, '');
-  return serveFlipbook(req, res, subdomain);
+  const subdomain = cleanHost.replace(`.${MAIN_DOMAIN}`, '').replace('www.', '');
+  return serveFlipbook(res, subdomain);
 });
 
-// ==================
-// HANDLERS
-// ==================
-async function handleVerificarSubdomain(req, res) {
-  let body = '';
-  req.on('data', c => body += c.toString());
-  req.on('end', async () => {
-    try {
-      const { subdomain } = JSON.parse(body);
-      const limpio = normalizeSubdomain(subdomain);
-
-      const [rows] = await pool.execute(
-        'SELECT id FROM cuentos WHERE subdomain = ? LIMIT 1',
-        [limpio]
-      );
-
-      const disponible = rows.length === 0;
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        disponible,
-        subdomain: limpio,
-        mensaje: disponible
-          ? `El subdominio "${limpio}" está disponible`
-          : `El subdominio "${limpio}" ya está en uso`
-      }));
-    } catch (e) {
-      res.writeHead(400);
-      res.end(JSON.stringify({ error: 'Payload inválido' }));
-    }
-  });
-}
-
+// === HANDLER CREAR CUENTO ===
 async function handleCrearCuento(req, res) {
   let body = '';
 
-  req.on('data', c => { body += c.toString(); });
+  req.on('data', chunk => body += chunk.toString());
 
   req.on('end', async () => {
     try {
       const params = new URLSearchParams(body);
 
-      const nombre = (params.get('nombre') || '').trim();
-      const edad = (params.get('edad') || '').trim();      // NO existe columna: va a payload_json
-      const email = (params.get('email') || '').trim();
-      const subdomainRaw = (params.get('subdomain') || '').trim();
+      const nombre = params.get('nombre');
+      const email = params.get('email');
+      const subdomainRaw = params.get('subdomain');
 
       if (!nombre || !email || !subdomainRaw) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({
-          error: 'Datos incompletos',
-          required: ['nombre', 'email', 'subdomain'],
-          note: 'edad es opcional y se guarda en payload_json'
-        }));
+        return json(res, 400, { error: 'Datos incompletos' });
       }
 
       const subdomain = normalizeSubdomain(subdomainRaw);
-      const codigo = generarCodigoUnico();
+      const codigo = generateCode();
 
-      // Guardamos TODO lo extra aquí (edad hoy, más campos mañana)
-      const payload = {
-        edad: edad || null,
-        // futuro: genero, tono_piel, etc...
-      };
+      // Verificar si subdomain existe
+      const [exists] = await pool.execute(
+        'SELECT id FROM cuentos WHERE subdomain = ? LIMIT 1',
+        [subdomain]
+      );
 
-      const sql = `
-        INSERT INTO cuentos
-          (subdomain, nombre_nino, codigo_unico, email_cliente, estado, payload_json)
-        VALUES
-          (?, ?, ?, ?, ?, ?)
-      `;
+      if (exists.length > 0) {
+        return json(res, 409, { error: 'Subdominio ya en uso' });
+      }
 
-      const values = [
-        subdomain,
-        nombre,
-        codigo,
-        email || null,
-        'pendiente',
-        JSON.stringify(payload)
-      ];
+      // Insertar
+      await pool.execute(
+        `INSERT INTO cuentos 
+        (subdomain, nombre_nino, codigo_unico, email_cliente, estado, payload_json)
+        VALUES (?, ?, ?, ?, 'pendiente', ?)`,
+        [
+          subdomain,
+          nombre,
+          codigo,
+          email,
+          JSON.stringify({
+            nombre,
+            email,
+            subdomain
+          })
+        ]
+      );
 
-      const [result] = await pool.execute(sql, values);
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      return json(res, 200, {
         success: true,
-        id: result.insertId,
         subdomain,
         codigo,
         url: `https://${subdomain}.${MAIN_DOMAIN}`,
         mensaje: 'Registro creado (pendiente). Próximo paso: pago + webhook.'
-      }));
-    } catch (e) {
-      console.error('Error creando cuento:', e);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        error: 'Error creando cuento',
-        code: e.code || null,
-        message: e.message || String(e)
-      }));
+      });
+
+    } catch (err) {
+      console.error(err);
+      return json(res, 500, { error: 'Error creando cuento' });
     }
   });
 }
 
-// ==================
-// LANDING
-// ==================
-function serveLandingPage(req, res) {
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(`
+// === LANDING PAGE ===
+function serveLandingPage(res) {
+  const html = `
 <!DOCTYPE html>
-<html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Cuentos Personalizados</title>
+</head>
 <body style="font-family:Arial;max-width:600px;margin:50px auto">
-<h1>Cuentos Personalizados</h1>
-<form id="f">
-<input name="nombre" placeholder="Nombre" required><br><br>
-<input name="edad" placeholder="Edad" required><br><br>
-<input name="email" placeholder="Email" required><br><br>
-<input name="subdomain" placeholder="Subdominio deseado" required><br><br>
-<button>Crear cuento</button>
+<h1>Cuentos personalizados</h1>
+
+<form id="form">
+  <label>Nombre del niño</label><br>
+  <input name="nombre" required><br><br>
+
+  <label>Email</label><br>
+  <input name="email" type="email" required><br><br>
+
+  <label>Subdominio deseado</label><br>
+  <input name="subdomain" placeholder="juanito-estrella" required><br><br>
+
+  <button>Crear cuento</button>
 </form>
+
 <pre id="out"></pre>
+
 <script>
-document.getElementById('f').onsubmit = async e => {
+document.getElementById('form').addEventListener('submit', async e => {
   e.preventDefault();
-  const r = await fetch('/api/crear-cuento', {
-    method:'POST',
-    body:new URLSearchParams(new FormData(e.target))
-  });
+  const data = new URLSearchParams(new FormData(e.target));
+  const r = await fetch('/api/crear-cuento', { method:'POST', body:data });
   document.getElementById('out').textContent = await r.text();
-}
+});
 </script>
 </body>
-</html>
-`);
+</html>`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
 }
 
-// ==================
-// FLIPBOOK
-// ==================
-async function serveFlipbook(req, res, subdomain) {
+// === FLIPBOOK ===
+async function serveFlipbook(res, subdomain) {
   try {
     const [rows] = await pool.execute(
       'SELECT * FROM cuentos WHERE subdomain = ? LIMIT 1',
@@ -222,22 +170,32 @@ async function serveFlipbook(req, res, subdomain) {
     }
 
     const c = rows[0];
-    pool.execute('UPDATE cuentos SET vistas = vistas + 1 WHERE id = ?', [c.id]);
+
+    await pool.execute(
+      'UPDATE cuentos SET vistas = vistas + 1 WHERE id = ?',
+      [c.id]
+    );
 
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`
 <h1>Cuento de ${c.nombre_nino}</h1>
 <p>Subdomain: ${c.subdomain}</p>
+<p>Código: ${c.codigo_unico}</p>
 <p>Estado: ${c.estado}</p>
 <p>Vistas: ${c.vistas}</p>
 `);
-  } catch {
+  } catch (e) {
+    console.error(e);
     res.writeHead(500);
     res.end('Error servidor');
   }
 }
 
-// ==================
-server.listen(PORT, '0.0.0.0', () => {
-  console.log('Servidor activo en puerto', PORT);
-});
+function json(res, code, data) {
+  res.writeHead(code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(data));
+}
+
+server.listen(PORT, '0.0.0.0', () =>
+  console.log(`Servidor escuchando en ${PORT}`)
+);
