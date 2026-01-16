@@ -15,21 +15,25 @@ const pool = mysql.createPool({
 });
 
 const server = http.createServer(async (req, res) => {
-  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
   
-  // Remover www si existe
-  const cleanHost = host.replace('www.', '');
+  // Normalizar: remover puerto si existe y limpiar
+  const cleanHost = host.split(':')[0].trim();
   
-  // Detectar si es dominio principal (sin subdomain) o tiene subdomain
-  const isMainDomain = cleanHost === MAIN_DOMAIN;
+  // Detectar si es dominio principal (con o sin www)
+  const isMainDomain = 
+    cleanHost === MAIN_DOMAIN || 
+    cleanHost === `www.${MAIN_DOMAIN}`;
   
   if (isMainDomain) {
     serveLandingPage(req, res);
   } else {
-    const subdomain = cleanHost.split('.')[0];
+    // Extraer subdomain (todo lo que está antes del dominio principal)
+    const subdomain = cleanHost.replace(`.${MAIN_DOMAIN}`, '').replace('www.', '');
     await serveFlipbook(req, res, subdomain);
   }
 });
+
 
 function serveLandingPage(req, res) {
   const html = `<!DOCTYPE html>
