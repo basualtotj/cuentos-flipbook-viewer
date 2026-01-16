@@ -20,8 +20,8 @@ git status
 
 echo
 
-echo "== git add server.js git-push.sh =="
-git add server.js git-push.sh
+echo "== git add -A (todos los cambios) =="
+git add -A
 
 # Abort early if nothing staged
 if git diff --cached --quiet; then
