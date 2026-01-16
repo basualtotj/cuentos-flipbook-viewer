@@ -1,0 +1,12 @@
+{
+  "name": "flipbook-viewer",
+  "version": "1.0.0",
+  "description": "Servidor de flipbooks con subdominios wildcard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
