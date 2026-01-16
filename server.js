@@ -104,42 +104,71 @@ async function handleVerificarSubdomain(req, res) {
 
 async function handleCrearCuento(req, res) {
   let body = '';
-  req.on('data', c => body += c.toString());
+
+  req.on('data', c => { body += c.toString(); });
+
   req.on('end', async () => {
     try {
       const params = new URLSearchParams(body);
 
-      const nombre = params.get('nombre');
-      const edad = params.get('edad');
-      const email = params.get('email');
-      const subdomainRaw = params.get('subdomain');
+      const nombre = (params.get('nombre') || '').trim();
+      const edad = (params.get('edad') || '').trim();      // NO existe columna: va a payload_json
+      const email = (params.get('email') || '').trim();
+      const subdomainRaw = (params.get('subdomain') || '').trim();
 
-      if (!nombre || !edad || !email || !subdomainRaw) {
-        res.writeHead(400);
-        return res.end(JSON.stringify({ error: 'Datos incompletos' }));
+      if (!nombre || !email || !subdomainRaw) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: 'Datos incompletos',
+          required: ['nombre', 'email', 'subdomain'],
+          note: 'edad es opcional y se guarda en payload_json'
+        }));
       }
 
       const subdomain = normalizeSubdomain(subdomainRaw);
       const codigo = generarCodigoUnico();
 
-      await pool.execute(
-        `INSERT INTO cuentos 
-        (nombre_nino, edad_nino, email_cliente, subdomain, codigo_unico, estado)
-        VALUES (?, ?, ?, ?, ?, 'pendiente')`,
-        [nombre, edad, email, subdomain, codigo]
-      );
+      // Guardamos TODO lo extra aquí (edad hoy, más campos mañana)
+      const payload = {
+        edad: edad || null,
+        // futuro: genero, tono_piel, etc...
+      };
+
+      const sql = `
+        INSERT INTO cuentos
+          (subdomain, nombre_nino, codigo_unico, email_cliente, estado, payload_json)
+        VALUES
+          (?, ?, ?, ?, ?, ?)
+      `;
+
+      const values = [
+        subdomain,
+        nombre,
+        codigo,
+        email || null,
+        'pendiente',
+        JSON.stringify(payload)
+      ];
+
+      const [result] = await pool.execute(sql, values);
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         success: true,
+        id: result.insertId,
         subdomain,
         codigo,
         url: `https://${subdomain}.${MAIN_DOMAIN}`,
         mensaje: 'Registro creado (pendiente). Próximo paso: pago + webhook.'
       }));
     } catch (e) {
-      res.writeHead(500);
-      res.end(JSON.stringify({ error: 'Error creando cuento' }));
+      console.error('Error creando cuento:', e);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: 'Error creando cuento',
+        code: e.code || null,
+        message: e.message || String(e)
+      }));
     }
   });
 }
