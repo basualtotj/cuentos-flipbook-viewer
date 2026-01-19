@@ -390,6 +390,41 @@ async function serveFlipbook(res, subdomain) {
       align-items:center;
       gap:14px;
     }
+
+    /* Fullscreen styles */
+    #flipbook:fullscreen{
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      margin: 0;
+      border-radius: 0;
+    }
+    #flipbook:-webkit-full-screen{
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      margin: 0;
+      border-radius: 0;
+    }
+    #flipbook:-ms-fullscreen{
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      margin: 0;
+      border-radius: 0;
+    }
+
+    body.fullscreen .controls{
+      position: fixed;
+      left: 50%;
+      bottom: 20px;
+      transform: translateX(-50%);
+      width: auto;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.7);
+      z-index: 9999;
+    }
     button{
       padding: 10px 14px;
       border:0;
@@ -424,6 +459,7 @@ async function serveFlipbook(res, subdomain) {
   <div class="controls">
     <button id="prev">◀ Anterior</button>
     <span id="page-info">Página 1 de ${imageCount}</span>
+  <button id="fullscreen">⛶ Pantalla completa</button>
     <button id="next">Siguiente ▶</button>
   </div>
 
@@ -461,6 +497,54 @@ async function serveFlipbook(res, subdomain) {
       $('#prev').click(() => $fb.turn('previous'));
       $('#next').click(() => $fb.turn('next'));
       update();
+
+      const fsBtn = document.getElementById('fullscreen');
+
+      function isFullscreen() {
+        return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+      }
+
+      function setFullscreenUi(on) {
+        document.body.classList.toggle('fullscreen', on);
+        if (fsBtn) fsBtn.textContent = on ? '✕ Salir' : '⛶ Pantalla completa';
+      }
+
+      function requestFullscreen(el) {
+        if (el.requestFullscreen) return el.requestFullscreen();
+        if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+        if (el.msRequestFullscreen) return el.msRequestFullscreen();
+      }
+
+      function exitFullscreen() {
+        if (document.exitFullscreen) return document.exitFullscreen();
+        if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+        if (document.msExitFullscreen) return document.msExitFullscreen();
+      }
+
+      if (fsBtn) {
+        fsBtn.addEventListener('click', () => {
+          if (isFullscreen()) {
+            exitFullscreen();
+          } else {
+            requestFullscreen($fb[0]);
+          }
+        });
+      }
+
+      function onFullscreenChange() {
+        const on = isFullscreen();
+        setFullscreenUi(on);
+        // Turn.js needs a manual resize when the container changes.
+        setTimeout(() => {
+          const ns = sizeFromCss();
+          $fb.turn('size', ns.w, ns.h);
+          update();
+        }, 50);
+      }
+
+      document.addEventListener('fullscreenchange', onFullscreenChange);
+      document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+      document.addEventListener('msfullscreenchange', onFullscreenChange);
 
       let t = null;
       window.addEventListener('resize', () => {
