@@ -1,11 +1,19 @@
 const http = require('http');
 const mysql = require('mysql2/promise');
 const crypto = require('crypto');
+const Stripe = require('stripe');
 
 const PORT = process.env.PORT || 3000;
 const MAIN_DOMAIN = 'cuentosparasiempre.com';
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
-// MariaDB/MySQL pool (mysql2/promise)
+if (!STRIPE_SECRET_KEY) {
+  console.error('ERROR: STRIPE_SECRET_KEY no está configurada');
+  process.exit(1);
+}
+
+const stripe = new Stripe(STRIPE_SECRET_KEY);
+
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -27,7 +35,6 @@ function normalizeSubdomain(value) {
 }
 
 function isValidSubdomain(value) {
-  // must be dns-ish, 1..63 chars, no leading/trailing '-', only [a-z0-9-]
   if (!value) return false;
   if (value.length < 1 || value.length > 63) return false;
   if (!/^[a-z0-9-]+$/.test(value)) return false;
@@ -36,28 +43,22 @@ function isValidSubdomain(value) {
 }
 
 function generateCodigoUnico() {
-  // 8 hex chars -> 8 chars, then uppercase. Fits varchar(20)
   return crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
 function getRequestHost(req) {
-  // Respect proxy header from Easypanel/reverse proxy
   const raw = (req.headers['x-forwarded-host'] || req.headers.host || '').toString().toLowerCase();
   return raw.split(',')[0].trim().split(':')[0];
 }
 
 function parseSubdomainFromHost(cleanHost) {
   if (!cleanHost) return null;
-
   if (cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`) {
     return null;
   }
-
-  // Only accept *.MAIN_DOMAIN
   if (!cleanHost.endsWith(`.${MAIN_DOMAIN}`)) {
     return null;
   }
-
   const prefix = cleanHost.slice(0, -(`.${MAIN_DOMAIN}`).length);
   const sd = prefix.replace(/^www\./, '');
   if (!sd) return null;
@@ -78,7 +79,6 @@ async function readBody(req, maxBytes = 1024 * 1024) {
   return await new Promise((resolve, reject) => {
     let size = 0;
     let body = '';
-
     req.on('data', chunk => {
       size += chunk.length;
       if (size > maxBytes) {
@@ -88,17 +88,14 @@ async function readBody(req, maxBytes = 1024 * 1024) {
       }
       body += chunk.toString('utf8');
     });
-
     req.on('end', () => resolve(body));
     req.on('error', reject);
   });
 }
 
 function collectPayloadFromParams(params) {
-  // Save ALL form fields in a JSON-valid object
   const payload = {};
   for (const [key, value] of params.entries()) {
-    // If a key appears multiple times, keep an array
     if (Object.prototype.hasOwnProperty.call(payload, key)) {
       const prev = payload[key];
       payload[key] = Array.isArray(prev) ? [...prev, value] : [prev, value];
@@ -109,7 +106,6 @@ function collectPayloadFromParams(params) {
   return payload;
 }
 
-// === LANDING PAGE ===
 function serveLandingPage(res) {
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -117,41 +113,65 @@ function serveLandingPage(res) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cuentos Personalizados</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 720px; margin: 50px auto; line-height: 1.6; padding: 20px; }
+    input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+    button { background: #5469d4; color: white; border: none; cursor: pointer; font-size: 16px; }
+    button:hover { background: #4355c8; }
+    #out { background: #f4f4f4; padding: 12px; overflow: auto; white-space: pre-wrap; margin-top: 20px; }
+  </style>
 </head>
-<body style="font-family:Arial;max-width:720px;margin:50px auto;line-height:1.4">
-  <h1>Cuentos personalizados</h1>
-  <p>Creá tu cuento. Elegí tu subdominio.</p>
+<body>
+  <h1>📚 Cuentos Personalizados</h1>
+  <p>Creá tu cuento único. Elegí tu subdominio.</p>
 
   <form id="form">
-    <label>Nombre del niño</label><br />
-    <input name="nombre" required /><br /><br />
+    <label>Nombre del niño/a</label>
+    <input name="nombre" required placeholder="Ej: Catalina" />
 
-    <label>Email</label><br />
-    <input name="email" type="email" required /><br /><br />
+    <label>Email</label>
+    <input name="email" type="email" required placeholder="tu@email.com" />
 
-    <label>Subdominio deseado</label><br />
-    <input name="subdomain" placeholder="juanito-estrella" required /><br /><br />
+    <label>Subdominio deseado</label>
+    <input name="subdomain" placeholder="catalina-estrella" required />
+    <small>Solo letras, números y guiones. Ejemplo: juanito-aventura</small>
 
-    <button type="submit">Crear cuento</button>
+    <button type="submit">Crear cuento y pagar ($19.990)</button>
   </form>
 
-  <pre id="out" style="background:#f4f4f4;padding:12px;overflow:auto"></pre>
+  <div id="out"></div>
 
   <script>
-    document.getElementById('form').addEventListener('submit', async (e) => {
+    const form = document.getElementById('form');
+    const out = document.getElementById('out');
+    
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const data = new URLSearchParams(new FormData(e.target));
-      const r = await fetch('/api/crear-cuento', { method: 'POST', body: data });
-      document.getElementById('out').textContent = await r.text();
+      out.textContent = 'Creando cuento...';
+      
+      try {
+        const data = new URLSearchParams(new FormData(e.target));
+        const r = await fetch('/api/crear-cuento', { method: 'POST', body: data });
+        const result = await r.json();
+        
+        if (result.success && result.checkout_url) {
+          out.textContent = 'Cuento creado. Redirigiendo a pago...';
+          setTimeout(() => {
+            window.location.href = result.checkout_url;
+          }, 1000);
+        } else {
+          out.textContent = 'Error: ' + (result.error || 'Desconocido');
+        }
+      } catch (err) {
+        out.textContent = 'Error: ' + err.message;
+      }
     });
   </script>
 </body>
 </html>`;
-
   return sendHtml(res, 200, html);
 }
 
-// === FLIPBOOK (placeholder) ===
 async function serveFlipbook(res, subdomain) {
   try {
     const [rows] = await pool.execute(
@@ -164,11 +184,8 @@ async function serveFlipbook(res, subdomain) {
     }
 
     const c = rows[0];
-
     await pool.execute('UPDATE cuentos SET vistas = COALESCE(vistas, 0) + 1 WHERE id = ?', [c.id]);
 
-    // This repo is only the viewer; we keep the output minimal.
-    // If flipbook_path exists, you can later serve static HTML/PDF from there.
     const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -176,12 +193,15 @@ async function serveFlipbook(res, subdomain) {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cuento de ${escapeHtml(String(c.nombre_nino || ''))}</title>
 </head>
-<body style="font-family:Arial;max-width:720px;margin:50px auto;line-height:1.4">
-  <h1>Cuento de ${escapeHtml(String(c.nombre_nino || ''))}</h1>
+<body style="font-family:Arial;max-width:720px;margin:50px auto;line-height:1.4;padding:20px">
+  <h1>📖 Cuento de ${escapeHtml(String(c.nombre_nino || ''))}</h1>
   <p><strong>Subdominio:</strong> ${escapeHtml(String(c.subdomain || ''))}</p>
+  <p><strong>Código:</strong> ${escapeHtml(String(c.codigo_unico || ''))}</p>
   <p><strong>Estado:</strong> ${escapeHtml(String(c.estado || ''))}</p>
   <p><strong>Vistas:</strong> ${escapeHtml(String(c.vistas ?? ''))}</p>
-  ${c.flipbook_path ? `<p><strong>flipbook_path:</strong> ${escapeHtml(String(c.flipbook_path))}</p>` : ''}
+  ${c.flipbook_path ? `<p><strong>Flipbook:</strong> ${escapeHtml(String(c.flipbook_path))}</p>` : ''}
+  ${c.estado === 'pendiente' ? '<p style="color:orange">⚠️ Pago pendiente</p>' : ''}
+  ${c.estado === 'pagado' ? '<p style="color:green">✅ Pago completado</p>' : ''}
 </body>
 </html>`;
 
@@ -201,7 +221,6 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
-// === HANDLER CREAR CUENTO ===
 async function handleCrearCuento(req, res) {
   try {
     const body = await readBody(req);
@@ -215,20 +234,17 @@ async function handleCrearCuento(req, res) {
       return sendJson(res, 400, { success: false, error: 'Datos incompletos' });
     }
 
-    // User chooses subdomain (do NOT generate random). We only normalize/sanitize.
     const subdomain = normalizeSubdomain(subdomainRaw);
     if (!isValidSubdomain(subdomain)) {
       return sendJson(res, 400, {
         success: false,
-        error: 'Subdominio inválido. Usa letras, números y guiones (sin espacios).'
+        error: 'Subdominio inválido. Usa letras, números y guiones.'
       });
     }
 
     const payload = collectPayloadFromParams(params);
     const payloadJson = JSON.stringify(payload);
 
-    // Ensure uniqueness of codigo_unico as well.
-    // If collision happens (very unlikely), retry a few times.
     let codigo = null;
     for (let i = 0; i < 5; i += 1) {
       codigo = generateCodigoUnico();
@@ -243,7 +259,6 @@ async function handleCrearCuento(req, res) {
       return sendJson(res, 500, { success: false, error: 'No se pudo generar código único' });
     }
 
-    // Validate: subdomain must be available
     const [existsSubdomain] = await pool.execute(
       'SELECT id FROM cuentos WHERE subdomain = ? LIMIT 1',
       [subdomain]
@@ -253,9 +268,7 @@ async function handleCrearCuento(req, res) {
       return sendJson(res, 409, { success: false, error: 'Subdominio ya en uso' });
     }
 
-    // Insert only real columns
-    // estado inicial = 'pendiente'
-    await pool.execute(
+    const [result] = await pool.execute(
       `INSERT INTO cuentos (
         subdomain,
         nombre_nino,
@@ -267,25 +280,54 @@ async function handleCrearCuento(req, res) {
       [subdomain, nombre, codigo, email || null, payloadJson]
     );
 
+    const cuentoId = result.insertId;
+
+    // Crear Stripe Checkout Session con metadata
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'clp',
+          product_data: {
+            name: `Cuento Personalizado - ${nombre}`,
+            description: `Subdominio: ${subdomain}.${MAIN_DOMAIN}`
+          },
+          unit_amount: 19990
+        },
+        quantity: 1
+      }],
+      mode: 'payment',
+      success_url: `https://${subdomain}.${MAIN_DOMAIN}?pago=exitoso`,
+      cancel_url: `https://${MAIN_DOMAIN}?pago=cancelado`,
+      customer_email: email || undefined,
+      metadata: {
+        cuento_id: String(cuentoId),
+        subdomain: subdomain,
+        codigo_unico: codigo,
+        nombre_nino: nombre
+      }
+    });
+
+    console.log(`✅ Cuento ${cuentoId} creado. Checkout: ${session.id}`);
+
     return sendJson(res, 200, {
       success: true,
-      url: `https://${subdomain}.${MAIN_DOMAIN}`
+      cuento_id: cuentoId,
+      subdomain: subdomain,
+      codigo: codigo,
+      checkout_url: session.url
     });
+
   } catch (err) {
     console.error(err);
-    if (String(err && err.message).includes('Payload too large')) {
-      return sendJson(res, 413, { success: false, error: 'Payload demasiado grande' });
-    }
     return sendJson(res, 500, { success: false, error: 'Error creando cuento' });
   }
 }
 
-// SERVER
 const server = http.createServer(async (req, res) => {
   const cleanHost = getRequestHost(req);
   const isMainDomain = cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`;
 
-  // Only one API endpoint for now
   if (req.method === 'POST' && req.url === '/api/crear-cuento') {
     return handleCrearCuento(req, res);
   }
