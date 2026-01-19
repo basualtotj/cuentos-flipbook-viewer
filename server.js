@@ -220,8 +220,8 @@ async function serveFlipbook(res, subdomain) {
     .header p { margin:5px 0; opacity:.85; }
   /* A4 horizontal ratio: 1.414:1 (ej: 1920x1360). */
   #flipbook { width:850px; height:601px; margin:20px auto; box-shadow:0 4px 20px rgba(0,0,0,.5); }
-  /* Each page is a viewport: clip overflow so the image can cover fully */
-  #flipbook .page { width:425px; height:601px; background:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  /* Single-page mode: each image is a full landscape spread */
+  #flipbook .page { width:850px; height:601px; background:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden; }
   /* A4 horizontal images should fill the page viewport (no letterboxing) */
   #flipbook .page img { width:100%; height:100%; object-fit:cover; }
     .controls { margin-top:20px; text-align:center; }
@@ -231,7 +231,7 @@ async function serveFlipbook(res, subdomain) {
     @media (max-width: 900px) {
   /* Keep A4 horizontal ratio: height = width / 1.414 */
   #flipbook { width:90vw; height: calc(90vw / 1.414); }
-  #flipbook .page { width:45vw; height: calc(90vw / 1.414); }
+  #flipbook .page { width:90vw; height: calc(90vw / 1.414); }
     }
   </style>
 </head>
@@ -254,7 +254,7 @@ async function serveFlipbook(res, subdomain) {
 
   <div class="controls">
     <button id="prev">◀ Anterior</button>
-    <span id="page-info" style="color:white;margin:0 20px;font-size:18px;">Página 1 de ${totalPages}</span>
+  <span id="page-info" style="color:white;margin:0 20px;font-size:18px;">Página 1 de ${totalPages}</span>
     <button id="next">Siguiente ▶</button>
   </div>
 
@@ -263,8 +263,9 @@ async function serveFlipbook(res, subdomain) {
       const totalPages = ${totalPages};
 
       $('#flipbook').turn({
-  width: 850,
-  height: 601,
+        width: 850,
+        height: 601,
+        display: 'single',
         autoCenter: true,
         duration: 900,
         gradients: true,
