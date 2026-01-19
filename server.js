@@ -439,11 +439,47 @@ async function serveFlipbook(res, subdomain) {
       $fb.turn({
         width: s.w,
         height: s.h,
+        display: 'double',
+        when: {
+          turning: function(e, page) {
+            // Ensure the cover (page 1) is a single page.
+            // After that, show pages in pairs: (2-3), (4-5), ...
+            const current = $(this).turn('page');
+
+            if (current === 1 && page === 2) {
+              $(this).turn('display', 'double');
+              // After switching to double, make sure we land on page 2 (left).
+              // Using a small timeout lets turn.js apply the display change.
+              setTimeout(() => $(this).turn('page', 2), 0);
+              e.preventDefault();
+              return;
+            }
+
+            if (page === 1) {
+              $(this).turn('display', 'single');
+              return;
+            }
+
+            // Align to even page numbers so the left page is even (2,4,6,...)
+            // This prevents page 1 from taking the right-side slot.
+            if (page > 1 && page % 2 !== 0) {
+              e.preventDefault();
+              $(this).turn('page', page - 1);
+            }
+          },
+          turned: function() {
+            const p = $(this).turn('page');
+            $(this).turn('display', p === 1 ? 'single' : 'double');
+          }
+        },
         autoCenter: true,
         duration: 900,
         gradients: true,
         acceleration: true
       });
+
+      // Start with single-page cover.
+      $fb.turn('display', 'single');
 
       function update(){
         const page = $fb.turn('page');
