@@ -301,7 +301,16 @@ async function serveFlipbook(res, subdomain) {
     const pagesHtml = Array.from({ length: imageCount }, (_, idx) => {
       const turnPage = idx + 1; // 1..imageCount
       const imgIndex = turnPage - 1; // 0..imageCount-1
-      return `<div class="page" data-page="${turnPage}"><img src="/flipbooks/${encodeURIComponent(folder)}/${imgIndex}.jpg" alt="Página ${turnPage}"></div>`;
+      // Cache-busting per page helps rule out stale CDN/browser cache when images were renamed/duplicated.
+      const src = `/flipbooks/${encodeURIComponent(folder)}/${imgIndex}.jpg?v=${imgIndex}`;
+      return `<div class="page" data-page="${turnPage}" data-img="${imgIndex}">` +
+        `<img loading="eager" decoding="async" ` +
+        `src="${src}" ` +
+        `alt="Página ${turnPage}" ` +
+        `onerror="this.style.outline='4px solid red'; console.error('IMG ERROR', this.src)" ` +
+        `onload="console.debug('IMG OK', this.getAttribute('data-p'), this.src)" data-p="${turnPage}"` +
+        `>` +
+        `</div>`;
     }).join('\n');
 
     const safeNombre = escapeHtml(c.nombre_nino || 'Tu Cuento');
@@ -438,16 +447,25 @@ async function serveFlipbook(res, subdomain) {
 
       const s = sizeFromCss();
 
+      // Debug: verify DOM pages and their image src mapping.
+      // This logs in the browser console (useful in production too).
+      console.debug('DOM .page count:', $fb.find('.page').length);
+      $fb.find('.page').each(function(i){
+        const $img = $(this).find('img');
+        console.debug('page-div', i+1, 'data-img=', $(this).attr('data-img'), 'src=', $img.attr('src'));
+      });
+
       $fb.turn({
         width: s.w,
         height: s.h,
-  /* NOTE: Turn.js normally infers page count from the DOM.
-     Passing pages here can cause subtle mismatches when pages are already in the markup. */
+        /* NOTE: Turn.js normally infers page count from the DOM. */
         autoCenter: true,
         duration: 900,
         gradients: true,
         acceleration: true
       });
+
+      console.debug('turn.js pages():', $fb.turn('pages'));
 
       function update(){
         const page = $fb.turn('page');
