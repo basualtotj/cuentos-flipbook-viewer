@@ -1,7 +1,10 @@
+// server.js (con hardening para servir /flipbooks/* sin path traversal)
 const http = require('http');
 const mysql = require('mysql2/promise');
 const crypto = require('crypto');
 const Stripe = require('stripe');
+const fs = require('fs').promises;
+const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 const MAIN_DOMAIN = 'cuentosparasiempre.com';
@@ -46,52 +49,21 @@ function generateCodigoUnico() {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
-/**
- * Host seguro: SOLO aceptamos:
- * - cuentosparasiempre.com
- * - www.cuentosparasiempre.com
- * - *.cuentosparasiempre.com
- *
- * Nota: Preferimos req.headers.host; usamos x-forwarded-host solo como fallback
- * porque puede ser spoofeado si la app es accesible directo.
- */
 function getRequestHost(req) {
-  const hostHeader = (req.headers.host || '').toString().toLowerCase();
-  const xfhHeader = (req.headers['x-forwarded-host'] || '').toString().toLowerCase();
-
-  const raw = (hostHeader || xfhHeader).split(',')[0].trim();
-  const clean = raw.split(':')[0].trim();
-
-  if (!clean) return '';
-
-  const ok =
-    clean === MAIN_DOMAIN ||
-    clean === `www.${MAIN_DOMAIN}` ||
-    clean.endsWith(`.${MAIN_DOMAIN}`);
-
-  return ok ? clean : '';
+  const raw = (req.headers['x-forwarded-host'] || req.headers.host || '')
+    .toString()
+    .toLowerCase();
+  return raw.split(',')[0].trim().split(':')[0];
 }
 
 function parseSubdomainFromHost(cleanHost) {
   if (!cleanHost) return null;
+  if (cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`) return null;
+  if (!cleanHost.endsWith(`.${MAIN_DOMAIN}`)) return null;
 
-  if (cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`) {
-    return null;
-  }
-
-  if (!cleanHost.endsWith(`.${MAIN_DOMAIN}`)) {
-    return null;
-  }
-
-  const prefix = cleanHost.slice(0, -(`.${MAIN_DOMAIN}`).length); // lo de antes del .dominio
+  const prefix = cleanHost.slice(0, -(`.${MAIN_DOMAIN}`).length);
   const sd = prefix.replace(/^www\./, '');
-
-  if (!sd) return null;
-
-  // Validación fuerte del subdomain proveniente del host
-  if (!isValidSubdomain(sd)) return null;
-
-  return sd;
+  return sd || null;
 }
 
 function sendJson(res, code, data) {
@@ -216,32 +188,98 @@ async function serveFlipbook(res, subdomain) {
     );
 
     if (!rows.length) {
-      return sendHtml(res, 404, 'Cuento no encontrado');
+      return sendHtml(
+        res,
+        404,
+        `<!DOCTYPE html><html><head><meta charset="utf-8"><title>404</title></head>
+<body style="font-family:Arial;text-align:center;padding:50px">
+<h1>404 - Cuento no encontrado</h1>
+<p>Subdomain: <strong>${escapeHtml(subdomain)}</strong></p>
+</body></html>`
+      );
     }
 
     const c = rows[0];
+    await pool.execute('UPDATE cuentos SET vistas = COALESCE(vistas, 0) + 1 WHERE id = ?', [c.id]);
 
-    await pool.execute(
-      'UPDATE cuentos SET vistas = COALESCE(vistas, 0) + 1 WHERE id = ?',
-      [c.id]
-    );
+    const flipbookFolder = c.flipbook_path || 'cuento-prueba';
+    const totalPages = 20;
 
     const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cuento de ${escapeHtml(String(c.nombre_nino || ''))}</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+  <style>
+    body { margin:0; padding:20px; background:#333; font-family:Arial,sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
+    .header { color:#fff; text-align:center; margin-bottom:20px; }
+    .header h1 { margin:0 0 10px; font-size:2em; }
+    .header p { margin:5px 0; opacity:.85; }
+    #flipbook { width:800px; height:600px; margin:20px auto; box-shadow:0 4px 20px rgba(0,0,0,.5); }
+    #flipbook .page { width:400px; height:600px; background:#fff; display:flex; align-items:center; justify-content:center; }
+    #flipbook .page img { width:100%; height:100%; object-fit:contain; }
+    .controls { margin-top:20px; text-align:center; }
+    .controls button { padding:10px 20px; margin:0 10px; background:#667eea; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:16px; }
+    .controls button:hover { background:#5568d3; }
+    .controls button:disabled { background:#666; cursor:not-allowed; }
+    @media (max-width: 850px) {
+      #flipbook { width:90vw; height: calc(90vw * 0.75); }
+      #flipbook .page { width:45vw; height: calc(90vw * 0.75); }
+    }
+  </style>
 </head>
-<body style="font-family:Arial;max-width:720px;margin:50px auto;line-height:1.4;padding:20px">
-  <h1>📖 Cuento de ${escapeHtml(String(c.nombre_nino || ''))}</h1>
-  <p><strong>Subdominio:</strong> ${escapeHtml(String(c.subdomain || ''))}</p>
-  <p><strong>Código:</strong> ${escapeHtml(String(c.codigo_unico || ''))}</p>
-  <p><strong>Estado:</strong> ${escapeHtml(String(c.estado || ''))}</p>
-  <p><strong>Vistas:</strong> ${escapeHtml(String(c.vistas ?? ''))}</p>
-  ${c.flipbook_path ? `<p><strong>Flipbook:</strong> ${escapeHtml(String(c.flipbook_path))}</p>` : ''}
-  ${c.estado === 'pendiente' ? '<p style="color:orange">⚠️ Pago pendiente</p>' : ''}
-  ${c.estado === 'pagado' ? '<p style="color:green">✅ Pago completado</p>' : ''}
+<body>
+  <div class="header">
+    <h1>📖 ${escapeHtml(String(c.nombre_nino || 'Tu Cuento'))}</h1>
+    <p>Código: ${escapeHtml(String(c.codigo_unico || ''))}</p>
+    ${c.estado === 'pagado'
+      ? '<p style="color:#4ade80">✅ Pago completado</p>'
+      : '<p style="color:#fbbf24">⚠️ Pago pendiente</p>'}
+  </div>
+
+  <div id="flipbook">
+    ${Array.from({ length: totalPages }, (_, i) => `
+      <div class="page">
+        <img src="/flipbooks/${encodeURIComponent(flipbookFolder)}/${i + 1}.jpg" alt="Página ${i + 1}" />
+      </div>
+    `).join('')}
+  </div>
+
+  <div class="controls">
+    <button id="prev">◀ Anterior</button>
+    <span id="page-info" style="color:white;margin:0 20px;font-size:18px;">Página 1 de ${totalPages}</span>
+    <button id="next">Siguiente ▶</button>
+  </div>
+
+  <script>
+    $(function() {
+      const totalPages = ${totalPages};
+
+      $('#flipbook').turn({
+        width: 800,
+        height: 600,
+        autoCenter: true,
+        duration: 900,
+        gradients: true,
+        acceleration: true
+      });
+
+      function updatePageInfo() {
+        const page = $('#flipbook').turn('page');
+        $('#page-info').text('Página ' + page + ' de ' + totalPages);
+        $('#prev').prop('disabled', page === 1);
+        $('#next').prop('disabled', page === totalPages);
+      }
+
+      $('#flipbook').bind('turned', function() { updatePageInfo(); });
+      $('#prev').click(function() { $('#flipbook').turn('previous'); });
+      $('#next').click(function() { $('#flipbook').turn('next'); });
+      updatePageInfo();
+    });
+  </script>
 </body>
 </html>`;
 
@@ -273,46 +311,44 @@ async function handleCrearCuento(req, res) {
     const payload = collectPayloadFromParams(params);
     const payloadJson = JSON.stringify(payload);
 
-    // Genera un codigo unico REAL (si colisiona, reintenta)
     let codigo = null;
-    let codigoOk = false;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 5; i += 1) {
       codigo = generateCodigoUnico();
-      const [r] = await pool.execute(
+      const [existsCode] = await pool.execute(
         'SELECT id FROM cuentos WHERE codigo_unico = ? LIMIT 1',
         [codigo]
       );
-      if (!r.length) { codigoOk = true; break; }
+      if (!existsCode.length) break;
     }
-    if (!codigoOk) {
+
+    if (!codigo) {
       return sendJson(res, 500, { success: false, error: 'No se pudo generar código único' });
     }
 
-    // INSERT directo + captura duplicado (evita race condition)
-    let cuentoId;
-    try {
-      const [result] = await pool.execute(
-        `INSERT INTO cuentos (
-          subdomain,
-          nombre_nino,
-          codigo_unico,
-          email_cliente,
-          estado,
-          payload_json
-        ) VALUES (?, ?, ?, ?, 'pendiente', ?)`,
-        [subdomain, nombre, codigo, email || null, payloadJson]
-      );
-      cuentoId = result.insertId;
-    } catch (e) {
-      if (e && e.code === 'ER_DUP_ENTRY') {
-        return sendJson(res, 409, { success: false, error: 'Subdominio ya en uso' });
-      }
-      throw e;
+    const [existsSubdomain] = await pool.execute(
+      'SELECT id FROM cuentos WHERE subdomain = ? LIMIT 1',
+      [subdomain]
+    );
+
+    if (existsSubdomain.length > 0) {
+      return sendJson(res, 409, { success: false, error: 'Subdominio ya en uso' });
     }
 
-    // Stripe Checkout Session con metadata
+    const [result] = await pool.execute(
+      `INSERT INTO cuentos (
+        subdomain,
+        nombre_nino,
+        codigo_unico,
+        email_cliente,
+        estado,
+        payload_json
+      ) VALUES (?, ?, ?, ?, 'pendiente', ?)`,
+      [subdomain, nombre, codigo, email || null, payloadJson]
+    );
+
+    const cuentoId = result.insertId;
+
     const session = await stripe.checkout.sessions.create({
-      // Nota: payment_method_types es opcional en versiones nuevas; no rompe dejarlo.
       payment_method_types: ['card'],
       line_items: [{
         price_data: {
@@ -346,7 +382,6 @@ async function handleCrearCuento(req, res) {
       codigo: codigo,
       checkout_url: session.url
     });
-
   } catch (err) {
     console.error(err);
     return sendJson(res, 500, { success: false, error: 'Error creando cuento' });
@@ -355,23 +390,48 @@ async function handleCrearCuento(req, res) {
 
 const server = http.createServer(async (req, res) => {
   const cleanHost = getRequestHost(req);
-
-  // Guardrail: si host no es válido, corta.
-  if (!cleanHost) {
-    return sendHtml(res, 404, 'No encontrado');
-  }
-
   const isMainDomain = cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`;
 
-  // Guardrail de métodos/rutas
-  const isCreateRoute = req.method === 'POST' && req.url === '/api/crear-cuento';
-  const isGet = req.method === 'GET';
+  // ===== Static seguro para /flipbooks/... =====
+  if (req.url && req.url.startsWith('/flipbooks/')) {
+    try {
+      // Solo GET/HEAD para estáticos
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405);
+        return res.end();
+      }
 
-  if (!isGet && !isCreateRoute) {
-    return sendHtml(res, 404, 'No encontrado');
+      // Normaliza URL (sin querystring) y evita traversal
+      const urlPath = req.url.split('?')[0];
+      const safeRel = urlPath.replace(/^\/+/, ''); // quita "/" inicial
+      const publicRoot = path.join(__dirname, 'public');
+      const filePath = path.normalize(path.join(publicRoot, safeRel));
+
+      // Bloquea si intenta salir de /public
+      if (!filePath.startsWith(publicRoot + path.sep) && filePath !== publicRoot) {
+        return sendHtml(res, 403, 'Forbidden');
+      }
+
+      const data = await fs.readFile(filePath);
+
+      const ext = path.extname(filePath).toLowerCase();
+      const contentType =
+        ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+        ext === '.png' ? 'image/png' :
+        ext === '.webp' ? 'image/webp' :
+        ext === '.gif' ? 'image/gif' :
+        'application/octet-stream';
+
+      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=3600' });
+      if (req.method === 'HEAD') return res.end();
+      return res.end(data);
+    } catch (e) {
+      return sendHtml(res, 404, 'Imagen no encontrada');
+    }
   }
+  // ============================================
 
-  if (isCreateRoute) {
+  if (req.method === 'POST' && req.url === '/api/crear-cuento') {
     return handleCrearCuento(req, res);
   }
 
@@ -380,9 +440,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const subdomain = parseSubdomainFromHost(cleanHost);
-  if (!subdomain) {
-    return sendHtml(res, 404, 'No encontrado');
-  }
+  if (!subdomain) return sendHtml(res, 404, 'No encontrado');
 
   return serveFlipbook(res, subdomain);
 });
