@@ -292,9 +292,16 @@ async function serveFlipbook(res, subdomain) {
     
     const BOOK_ASPECT = 2.8285714;
 
-    // Generar divs de páginas: 0.jpg hasta 22.jpg
-    const pagesHtml = Array.from({ length: imageCount }, (_, i) => {
-      return `<div class="page"><img src="/flipbooks/${encodeURIComponent(folder)}/${i}.jpg" alt="Página ${i}"></div>`;
+    // Turn.js indexa páginas desde 1. Tus imágenes empiezan en 0.
+    // Mapeo esperado:
+    //   Turn.js page 1 -> 0.jpg
+    //   Turn.js page 2 -> 1.jpg
+    //   ...
+    //   Turn.js page 23 -> 22.jpg
+    const pagesHtml = Array.from({ length: imageCount }, (_, idx) => {
+      const turnPage = idx + 1; // 1..imageCount
+      const imgIndex = turnPage - 1; // 0..imageCount-1
+      return `<div class="page" data-page="${turnPage}"><img src="/flipbooks/${encodeURIComponent(folder)}/${imgIndex}.jpg" alt="Página ${turnPage}"></div>`;
     }).join('\n');
 
     const safeNombre = escapeHtml(c.nombre_nino || 'Tu Cuento');
@@ -434,7 +441,8 @@ async function serveFlipbook(res, subdomain) {
       $fb.turn({
         width: s.w,
         height: s.h,
-        pages: imageCount, // CRÍTICO: Turn.js debe saber que hay 23 páginas
+  /* NOTE: Turn.js normally infers page count from the DOM.
+     Passing pages here can cause subtle mismatches when pages are already in the markup. */
         autoCenter: true,
         duration: 900,
         gradients: true,
