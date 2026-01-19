@@ -1,4 +1,4 @@
-// server.js (con hardening para servir /flipbooks/* sin path traversal)
+// server.js (ISLA: solo este archivo)
 const http = require('http');
 const mysql = require('mysql2/promise');
 const crypto = require('crypto');
@@ -7,25 +7,26 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const PORT = process.env.PORT || 3000;
-const MAIN_DOMAIN = 'cuentosparasiempre.com';
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const MAIN_DOMAIN = process.env.MAIN_DOMAIN || 'cuentosparasiempre.com';
 
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 if (!STRIPE_SECRET_KEY) {
   console.error('ERROR: STRIPE_SECRET_KEY no está configurada');
   process.exit(1);
 }
-
 const stripe = new Stripe(STRIPE_SECRET_KEY);
 
+// ====== DB ======
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10
+  connectionLimit: 10,
 });
 
+// ====== Helpers ======
 function normalizeSubdomain(value) {
   return String(value || '')
     .trim()
@@ -47,6 +48,15 @@ function isValidSubdomain(value) {
 
 function generateCodigoUnico() {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function getRequestHost(req) {
@@ -94,41 +104,21 @@ async function readBody(req, maxBytes = 1024 * 1024) {
   });
 }
 
-function collectPayloadFromParams(params) {
-  const payload = {};
-  for (const [key, value] of params.entries()) {
-    if (Object.prototype.hasOwnProperty.call(payload, key)) {
-      const prev = payload[key];
-      payload[key] = Array.isArray(prev) ? [...prev, value] : [prev, value];
-    } else {
-      payload[key] = value;
-    }
-  }
-  return payload;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
+// ====== Landing ======
 function serveLandingPage(res) {
-  const html = `<!DOCTYPE html>
+  const html = `<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Cuentos Personalizados</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 720px; margin: 50px auto; line-height: 1.6; padding: 20px; }
-    input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
-    button { background: #5469d4; color: white; border: none; cursor: pointer; font-size: 16px; }
-    button:hover { background: #4355c8; }
-    #out { background: #f4f4f4; padding: 12px; overflow: auto; white-space: pre-wrap; margin-top: 20px; }
+    body{font-family:Arial,sans-serif;max-width:720px;margin:50px auto;line-height:1.6;padding:20px}
+    input,button{padding:10px;margin:5px 0;width:100%;box-sizing:border-box}
+    button{background:#5469d4;color:#fff;border:0;cursor:pointer;font-size:16px;border-radius:8px}
+    button:hover{background:#4355c8}
+    #out{background:#f4f4f4;padding:12px;white-space:pre-wrap;margin-top:20px;border-radius:8px}
+    small{color:#666}
   </style>
 </head>
 <body>
@@ -144,7 +134,7 @@ function serveLandingPage(res) {
 
     <label>Subdominio deseado</label>
     <input name="subdomain" placeholder="catalina-estrella" required />
-    <small>Solo letras, números y guiones. Ejemplo: juanito-aventura</small>
+    <small>Solo letras, números y guiones.</small>
 
     <button type="submit">Crear cuento y pagar ($19.990)</button>
   </form>
@@ -162,13 +152,20 @@ function serveLandingPage(res) {
       try {
         const data = new URLSearchParams(new FormData(e.target));
         const r = await fetch('/api/crear-cuento', { method: 'POST', body: data });
-        const result = await r.json();
+
+        let result = {};
+        try { result = await r.json(); } catch {}
+
+        if (r.status === 409) {
+          out.textContent = 'Subdominio ya en uso. Prueba otro.';
+          return;
+        }
 
         if (result.success && result.checkout_url) {
           out.textContent = 'Cuento creado. Redirigiendo a pago...';
-          setTimeout(() => { window.location.href = result.checkout_url; }, 800);
+          setTimeout(() => window.location.href = result.checkout_url, 700);
         } else {
-          out.textContent = 'Error: ' + (result.error || 'Desconocido');
+          out.textContent = 'Error: ' + (result.error || ('HTTP ' + r.status));
         }
       } catch (err) {
         out.textContent = 'Error: ' + err.message;
@@ -180,121 +177,7 @@ function serveLandingPage(res) {
   return sendHtml(res, 200, html);
 }
 
-async function serveFlipbook(res, subdomain) {
-  try {
-    const [rows] = await pool.execute(
-      'SELECT id, subdomain, nombre_nino, codigo_unico, estado, vistas, flipbook_path FROM cuentos WHERE subdomain = ? LIMIT 1',
-      [subdomain]
-    );
-
-    if (!rows.length) {
-      return sendHtml(
-        res,
-        404,
-        `<!DOCTYPE html><html><head><meta charset="utf-8"><title>404</title></head>
-<body style="font-family:Arial;text-align:center;padding:50px">
-<h1>404 - Cuento no encontrado</h1>
-<p>Subdomain: <strong>${escapeHtml(subdomain)}</strong></p>
-</body></html>`
-      );
-    }
-
-    const c = rows[0];
-    await pool.execute('UPDATE cuentos SET vistas = COALESCE(vistas, 0) + 1 WHERE id = ?', [c.id]);
-
-    const flipbookFolder = c.flipbook_path || 'cuento-prueba';
-    const totalPages = 20;
-
-    const html = `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cuento de ${escapeHtml(String(c.nombre_nino || ''))}</title>
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
-  <style>
-    body { margin:0; padding:20px; background:#333; font-family:Arial,sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
-    .header { color:#fff; text-align:center; margin-bottom:20px; }
-    .header h1 { margin:0 0 10px; font-size:2em; }
-    .header p { margin:5px 0; opacity:.85; }
-  /* A4 horizontal ratio: 1.414:1 (ej: 1920x1360). */
-  #flipbook { width:850px; height:601px; margin:20px auto; box-shadow:0 4px 20px rgba(0,0,0,.5); }
-  /* Single-page mode: each image is a full landscape spread */
-  #flipbook .page { width:850px; height:601px; background:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden; }
-  /* A4 horizontal images should fill the page viewport (no letterboxing) */
-  #flipbook .page img { width:100%; height:100%; object-fit:cover; }
-    .controls { margin-top:20px; text-align:center; }
-    .controls button { padding:10px 20px; margin:0 10px; background:#667eea; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:16px; }
-    .controls button:hover { background:#5568d3; }
-    .controls button:disabled { background:#666; cursor:not-allowed; }
-    @media (max-width: 900px) {
-  /* Keep A4 horizontal ratio: height = width / 1.414 */
-  #flipbook { width:90vw; height: calc(90vw / 1.414); }
-  #flipbook .page { width:90vw; height: calc(90vw / 1.414); }
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>📖 ${escapeHtml(String(c.nombre_nino || 'Tu Cuento'))}</h1>
-    <p>Código: ${escapeHtml(String(c.codigo_unico || ''))}</p>
-    ${c.estado === 'pagado'
-      ? '<p style="color:#4ade80">✅ Pago completado</p>'
-      : '<p style="color:#fbbf24">⚠️ Pago pendiente</p>'}
-  </div>
-
-  <div id="flipbook">
-    ${Array.from({ length: totalPages }, (_, i) => `
-      <div class="page">
-        <img src="/flipbooks/${encodeURIComponent(flipbookFolder)}/${i + 1}.jpg" alt="Página ${i + 1}" />
-      </div>
-    `).join('')}
-  </div>
-
-  <div class="controls">
-    <button id="prev">◀ Anterior</button>
-  <span id="page-info" style="color:white;margin:0 20px;font-size:18px;">Página 1 de ${totalPages}</span>
-    <button id="next">Siguiente ▶</button>
-  </div>
-
-  <script>
-    $(function() {
-      const totalPages = ${totalPages};
-
-      $('#flipbook').turn({
-        width: 850,
-        height: 601,
-        display: 'single',
-        autoCenter: true,
-        duration: 900,
-        gradients: true,
-        acceleration: true
-      });
-
-      function updatePageInfo() {
-        const page = $('#flipbook').turn('page');
-        $('#page-info').text('Página ' + page + ' de ' + totalPages);
-        $('#prev').prop('disabled', page === 1);
-        $('#next').prop('disabled', page === totalPages);
-      }
-
-      $('#flipbook').bind('turned', function() { updatePageInfo(); });
-      $('#prev').click(function() { $('#flipbook').turn('previous'); });
-      $('#next').click(function() { $('#flipbook').turn('next'); });
-      updatePageInfo();
-    });
-  </script>
-</body>
-</html>`;
-
-    return sendHtml(res, 200, html);
-  } catch (e) {
-    console.error(e);
-    return sendHtml(res, 500, 'Error servidor');
-  }
-}
-
+// ====== API: crear cuento ======
 async function handleCrearCuento(req, res) {
   try {
     const body = await readBody(req);
@@ -310,12 +193,10 @@ async function handleCrearCuento(req, res) {
 
     const subdomain = normalizeSubdomain(subdomainRaw);
     if (!isValidSubdomain(subdomain)) {
-      return sendJson(res, 400, { success: false, error: 'Subdominio inválido. Usa letras, números y guiones.' });
+      return sendJson(res, 400, { success: false, error: 'Subdominio inválido' });
     }
 
-    const payload = collectPayloadFromParams(params);
-    const payloadJson = JSON.stringify(payload);
-
+    // código único
     let codigo = null;
     for (let i = 0; i < 5; i += 1) {
       codigo = generateCodigoUnico();
@@ -325,67 +206,64 @@ async function handleCrearCuento(req, res) {
       );
       if (!existsCode.length) break;
     }
+    if (!codigo) return sendJson(res, 500, { success: false, error: 'No se pudo generar código' });
 
-    if (!codigo) {
-      return sendJson(res, 500, { success: false, error: 'No se pudo generar código único' });
-    }
-
+    // subdomain único
     const [existsSubdomain] = await pool.execute(
       'SELECT id FROM cuentos WHERE subdomain = ? LIMIT 1',
       [subdomain]
     );
-
-    if (existsSubdomain.length > 0) {
+    if (existsSubdomain.length) {
       return sendJson(res, 409, { success: false, error: 'Subdominio ya en uso' });
     }
 
+    // guardar pendiente
+    const payloadJson = JSON.stringify({
+      nombre,
+      email,
+      subdomain,
+      created_at: new Date().toISOString(),
+    });
+
     const [result] = await pool.execute(
-      `INSERT INTO cuentos (
-        subdomain,
-        nombre_nino,
-        codigo_unico,
-        email_cliente,
-        estado,
-        payload_json
-      ) VALUES (?, ?, ?, ?, 'pendiente', ?)`,
+      `INSERT INTO cuentos (subdomain, nombre_nino, codigo_unico, email_cliente, estado, payload_json)
+       VALUES (?, ?, ?, ?, 'pendiente', ?)`,
       [subdomain, nombre, codigo, email || null, payloadJson]
     );
 
     const cuentoId = result.insertId;
 
+    // Stripe Checkout
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
+      mode: 'payment',
       line_items: [{
         price_data: {
           currency: 'clp',
           product_data: {
             name: `Cuento Personalizado - ${nombre}`,
-            description: `Subdominio: ${subdomain}.${MAIN_DOMAIN}`
+            description: `Subdominio: ${subdomain}.${MAIN_DOMAIN}`,
           },
-          unit_amount: 19990
+          unit_amount: 19990,
         },
-        quantity: 1
+        quantity: 1,
       }],
-      mode: 'payment',
       success_url: `https://${subdomain}.${MAIN_DOMAIN}?pago=exitoso`,
       cancel_url: `https://${MAIN_DOMAIN}?pago=cancelado`,
       customer_email: email || undefined,
       metadata: {
         cuento_id: String(cuentoId),
-        subdomain: subdomain,
+        subdomain,
         codigo_unico: codigo,
-        nombre_nino: nombre
-      }
+        nombre_nino: nombre,
+      },
     });
-
-    console.log(`✅ Cuento ${cuentoId} creado. Checkout: ${session.id}`);
 
     return sendJson(res, 200, {
       success: true,
       cuento_id: cuentoId,
-      subdomain: subdomain,
-      codigo: codigo,
-      checkout_url: session.url
+      subdomain,
+      codigo,
+      checkout_url: session.url,
     });
   } catch (err) {
     console.error(err);
@@ -393,59 +271,276 @@ async function handleCrearCuento(req, res) {
   }
 }
 
+// ====== Flipbook (subdominio) ======
+async function serveFlipbook(res, subdomain) {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, subdomain, nombre_nino, codigo_unico, estado, vistas, flipbook_path FROM cuentos WHERE subdomain = ? LIMIT 1',
+      [subdomain]
+    );
+
+    if (!rows.length) {
+      return sendHtml(res, 404, `<h1>404 - Cuento no encontrado</h1><p>${escapeHtml(subdomain)}</p>`);
+    }
+
+    const c = rows[0];
+    await pool.execute('UPDATE cuentos SET vistas = COALESCE(vistas, 0) + 1 WHERE id = ?', [c.id]);
+
+    const folder = c.flipbook_path || 'cuento-prueba';
+    const totalPages = 20;
+
+    // A4 horizontal (una página): 2970/2100 = 1.4142857
+    // Libro abierto (doble página): 2 * 1.4142857 = 2.8285714
+    const BOOK_ASPECT = 2.8285714;
+
+    const pagesHtml = Array.from({ length: totalPages }, (_, i) => {
+      const n = i + 1;
+      return `<div class="page"><img src="/flipbooks/${encodeURIComponent(folder)}/${n}.jpg" alt="Página ${n}"></div>`;
+    }).join('\n');
+
+    const safeNombre = escapeHtml(c.nombre_nino || 'Tu Cuento');
+    const safeCodigo = escapeHtml(c.codigo_unico || '');
+    const paidBadge = c.estado === 'pagado'
+      ? '<span class="badge ok">✅ Pago completado</span>'
+      : '<span class="badge warn">⚠️ Pago pendiente</span>';
+
+    const html = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${safeNombre}</title>
+
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+
+  <style>
+    :root{
+      --maxw: 1200px;
+      --bg: #0f0f12;
+      --panel: rgba(255,255,255,.06);
+      --txt: #f5f5f7;
+      --muted: rgba(245,245,247,.75);
+    }
+    body{
+      margin:0;
+      padding:18px 14px 26px;
+      background: var(--bg);
+      color: var(--txt);
+      font-family: Arial, sans-serif;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:14px;
+    }
+    .header{
+      width:min(96vw, var(--maxw));
+      background: var(--panel);
+      border-radius: 14px;
+      padding: 14px 16px;
+      box-sizing: border-box;
+    }
+    .header h1{ margin:0 0 6px; font-size: 22px; }
+    .meta{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; color:var(--muted); }
+    .code{ color: var(--txt); font-weight:700; }
+    .badge{ padding:6px 10px; border-radius:999px; font-size:13px; font-weight:700; }
+    .badge.ok{ background: rgba(34,197,94,.18); color:#4ade80; }
+    .badge.warn{ background: rgba(251,191,36,.18); color:#fbbf24; }
+
+    /* === CLAVE: contenedor con proporción correcta antes de turn() === */
+    #flipbook{
+      width: min(96vw, var(--maxw));
+      aspect-ratio: ${BOOK_ASPECT}; /* doble página A4 horizontal */
+      height: auto; /* el alto lo define aspect-ratio */
+      margin: 6px 0;
+      box-shadow: 0 12px 40px rgba(0,0,0,.55);
+      border-radius: 14px;
+      overflow: hidden;
+      background: #111;
+    }
+
+    /* turn.js mete páginas dentro: asegura que ocupen el alto */
+    #flipbook .page{
+      background:#111;
+      width: 50%;
+      height: 100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    /* IMAGEN: fill sin bordes */
+    #flipbook .page img{
+      width:100%;
+      height:100%;
+      display:block;
+      object-fit: cover; /* <- si quieres NO recortar, cambia a contain */
+      background:#111;
+    }
+
+    .controls{
+      width:min(96vw, var(--maxw));
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      gap:14px;
+    }
+    button{
+      padding: 10px 14px;
+      border:0;
+      border-radius:10px;
+      background:#667eea;
+      color:#fff;
+      font-size:15px;
+      cursor:pointer;
+    }
+    button:disabled{ opacity:.45; cursor:not-allowed; }
+    #page-info{ color: var(--muted); font-size: 14px; }
+
+    @media (max-width: 520px){
+      .header h1{ font-size:18px; }
+      button{ padding: 9px 12px; font-size:14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📖 ${safeNombre}</h1>
+    <div class="meta">
+      <div>Código: <span class="code">${safeCodigo}</span></div>
+      ${paidBadge}
+    </div>
+  </div>
+
+  <div id="flipbook">
+    ${pagesHtml}
+  </div>
+
+  <div class="controls">
+    <button id="prev">◀ Anterior</button>
+    <span id="page-info">Página 1 de ${totalPages}</span>
+    <button id="next">Siguiente ▶</button>
+  </div>
+
+  <script>
+    $(function () {
+      const totalPages = ${totalPages};
+      const $fb = $('#flipbook');
+
+      function sizeFromCss(){
+        // OJO: con aspect-ratio, height está bien calculado por CSS
+        const w = $fb.width();
+        const h = $fb.height();
+        return { w, h };
+      }
+
+      const s = sizeFromCss();
+
+      $fb.turn({
+        width: s.w,
+        height: s.h,
+        autoCenter: true,
+        duration: 900,
+        gradients: true,
+        acceleration: true
+      });
+
+      function update(){
+        const page = $fb.turn('page');
+        $('#page-info').text('Página ' + page + ' de ' + totalPages);
+        $('#prev').prop('disabled', page === 1);
+        $('#next').prop('disabled', page === totalPages);
+      }
+
+      $fb.bind('turned', update);
+      $('#prev').click(() => $fb.turn('previous'));
+      $('#next').click(() => $fb.turn('next'));
+      update();
+
+      let t = null;
+      window.addEventListener('resize', () => {
+        clearTimeout(t);
+        t = setTimeout(() => {
+          const ns = sizeFromCss();
+          $fb.turn('size', ns.w, ns.h);
+          update();
+        }, 150);
+      });
+    });
+  </script>
+</body>
+</html>`;
+
+    return sendHtml(res, 200, html);
+  } catch (e) {
+    console.error(e);
+    return sendHtml(res, 500, 'Error servidor');
+  }
+}
+
+// ====== Static: /flipbooks/... jpg ======
+const PUBLIC_DIR = path.join(__dirname, 'public');
+
+function safeJoin(base, urlPath) {
+  // evita ../ traversal
+  const decoded = decodeURIComponent(urlPath.split('?')[0]);
+  const joined = path.join(base, decoded);
+  if (!joined.startsWith(base)) return null;
+  return joined;
+}
+
+async function serveStatic(req, res) {
+  if (!req.url.startsWith('/flipbooks/')) return false;
+
+  const filePath = safeJoin(PUBLIC_DIR, req.url);
+  if (!filePath) return false;
+
+  try {
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType =
+      (ext === '.jpg' || ext === '.jpeg') ? 'image/jpeg' :
+      (ext === '.png') ? 'image/png' :
+      null;
+
+    if (!contentType) return false;
+
+    const data = await fs.readFile(filePath);
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=300'
+    });
+    res.end(data);
+    return true;
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Archivo no encontrado');
+    return true;
+  }
+}
+
+// ====== Server ======
 const server = http.createServer(async (req, res) => {
+  // 1) Estáticos (JPG)
+  if (await serveStatic(req, res)) return;
+
   const cleanHost = getRequestHost(req);
   const isMainDomain = cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`;
 
-  // ===== Static seguro para /flipbooks/... =====
-  if (req.url && req.url.startsWith('/flipbooks/')) {
-    try {
-      // Solo GET/HEAD para estáticos
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        res.writeHead(405);
-        return res.end();
-      }
-
-      // Normaliza URL (sin querystring) y evita traversal
-      const urlPath = req.url.split('?')[0];
-      const safeRel = urlPath.replace(/^\/+/, ''); // quita "/" inicial
-      const publicRoot = path.join(__dirname, 'public');
-      const filePath = path.normalize(path.join(publicRoot, safeRel));
-
-      // Bloquea si intenta salir de /public
-      if (!filePath.startsWith(publicRoot + path.sep) && filePath !== publicRoot) {
-        return sendHtml(res, 403, 'Forbidden');
-      }
-
-      const data = await fs.readFile(filePath);
-
-      const ext = path.extname(filePath).toLowerCase();
-      const contentType =
-        ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
-        ext === '.png' ? 'image/png' :
-        ext === '.webp' ? 'image/webp' :
-        ext === '.gif' ? 'image/gif' :
-        'application/octet-stream';
-
-      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=3600' });
-      if (req.method === 'HEAD') return res.end();
-      return res.end(data);
-    } catch (e) {
-      return sendHtml(res, 404, 'Imagen no encontrada');
-    }
-  }
-  // ============================================
-
+  // API
   if (req.method === 'POST' && req.url === '/api/crear-cuento') {
     return handleCrearCuento(req, res);
   }
 
+  // Landing
   if (isMainDomain) {
     return serveLandingPage(res);
   }
 
+  // Subdominio -> Flipbook
   const subdomain = parseSubdomainFromHost(cleanHost);
-  if (!subdomain) return sendHtml(res, 404, 'No encontrado');
+  if (!subdomain) {
+    return sendHtml(res, 404, 'No encontrado');
+  }
 
   return serveFlipbook(res, subdomain);
 });
