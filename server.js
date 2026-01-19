@@ -422,71 +422,52 @@ async function serveFlipbook(res, subdomain) {
     <button id="next">Siguiente ▶</button>
   </div>
 
-<script>
-  $(function () {
-    const totalPages = ${totalPages};
-    const $fb = $('#flipbook');
+  <script>
+    $(function () {
+      const totalPages = ${totalPages};
+      const $fb = $('#flipbook');
 
-    function sizeFromCss() {
-      // Con aspect-ratio, el alto lo calcula CSS
-      const w = $fb.width();
-      const h = $fb.height();
-      return { w, h };
-    }
-
-    function update() {
-      const page = $fb.turn('page');
-      $('#page-info').text('Página ' + page + ' de ' + totalPages);
-      $('#prev').prop('disabled', page === 1);
-      $('#next').prop('disabled', page === totalPages);
-    }
-
-    // 1) Inicializa turn
-    const s = sizeFromCss();
-    $fb.turn({
-      width: s.w,
-      height: s.h,
-      autoCenter: true,
-      duration: 900,
-      gradients: true,
-      acceleration: true
-    });
-
-    // 2) Abrir en spread 1|2 (página par) DESPUÉS de inicializar
-    //    Usamos un tick para evitar "method page called before init" / tamaños 0
-    setTimeout(() => {
-      // Si por alguna razón turn no está listo, no rompe
-      if (typeof $fb.turn === 'function') {
-        $fb.turn('page', 2);
-        update();
+      function sizeFromCss(){
+        // OJO: con aspect-ratio, height está bien calculado por CSS
+        const w = $fb.width();
+        const h = $fb.height();
+        return { w, h };
       }
-    }, 0);
 
-    // 3) Eventos
-    $fb.bind('turned', function () {
+      const s = sizeFromCss();
+
+      $fb.turn({
+        width: s.w,
+        height: s.h,
+        autoCenter: true,
+        duration: 900,
+        gradients: true,
+        acceleration: true
+      });
+
+      function update(){
+        const page = $fb.turn('page');
+        $('#page-info').text('Página ' + page + ' de ' + totalPages);
+        $('#prev').prop('disabled', page === 1);
+        $('#next').prop('disabled', page === totalPages);
+      }
+
+      $fb.bind('turned', update);
+      $('#prev').click(() => $fb.turn('previous'));
+      $('#next').click(() => $fb.turn('next'));
       update();
+
+      let t = null;
+      window.addEventListener('resize', () => {
+        clearTimeout(t);
+        t = setTimeout(() => {
+          const ns = sizeFromCss();
+          $fb.turn('size', ns.w, ns.h);
+          update();
+        }, 150);
+      });
     });
-
-    $('#prev').click(() => $fb.turn('previous'));
-    $('#next').click(() => $fb.turn('next'));
-
-    // Estado inicial
-    update();
-
-    // 4) Resize seguro: recalcula tamaño y mantiene página actual
-    let t = null;
-    window.addEventListener('resize', () => {
-      clearTimeout(t);
-      t = setTimeout(() => {
-        const ns = sizeFromCss();
-        const currentPage = $fb.turn('page');
-        $fb.turn('size', ns.w, ns.h);
-        $fb.turn('page', currentPage);
-        update();
-      }, 150);
-    });
-  });
-</script>
+  </script>
 </body>
 </html>`;
 
