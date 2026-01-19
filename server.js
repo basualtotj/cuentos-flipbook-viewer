@@ -422,119 +422,52 @@ async function serveFlipbook(res, subdomain) {
     <button id="next">Siguiente ▶</button>
   </div>
 
- <script>
-  $(function () {
-    const totalPages = ${totalPages};
-    const $fb = $('#flipbook');
+  <script>
+    $(function () {
+      const totalPages = ${totalPages};
+      const $fb = $('#flipbook');
 
-    function sizeFromCss() {
-      const w = $fb.width();
-      const h = $fb.height();
-      return { w, h };
-    }
+      function sizeFromCss(){
+        // OJO: con aspect-ratio, height está bien calculado por CSS
+        const w = $fb.width();
+        const h = $fb.height();
+        return { w, h };
+      }
 
-    function update() {
-      const page = $fb.turn('page');
-      $('#page-info').text('Página ' + page + ' de ' + totalPages);
-      $('#prev').prop('disabled', page === 1);
-      $('#next').prop('disabled', page === totalPages);
-    }
+      const s = sizeFromCss();
 
-    const s = sizeFromCss();
+      $fb.turn({
+        width: s.w,
+        height: s.h,
+        autoCenter: true,
+        duration: 900,
+        gradients: true,
+        acceleration: true
+      });
 
-    $fb.turn({
-      width: s.w,
-      height: s.h,
-      display: 'double',     // importante: libro abierto
-      autoCenter: true,
-      duration: 900,
-      gradients: true,
-      acceleration: true
-    });
+      function update(){
+        const page = $fb.turn('page');
+        $('#page-info').text('Página ' + page + ' de ' + totalPages);
+        $('#prev').prop('disabled', page === 1);
+        $('#next').prop('disabled', page === totalPages);
+      }
 
-    // ✅ Navegación correcta: NO saltar desde portada
-    $('#next').off('click').on('click', function () {
-      const page = $fb.turn('page');
-      if (page === 1) return $fb.turn('page', 2);  // 1 -> 2 (muestra 2-3)
-      return $fb.turn('next');
-    });
-
-    $('#prev').off('click').on('click', function () {
-      const page = $fb.turn('page');
-      if (page === 2) return $fb.turn('page', 1);  // 2 -> 1 (vuelve a portada)
-      return $fb.turn('previous');
-    });
-
-    $fb.bind('turned', update);
-    update();
-
-    // Resize seguro
-    let t = null;
-    window.addEventListener('resize', () => {
-      clearTimeout(t);
-      t = setTimeout(() => {
-        const ns = sizeFromCss();
-        const current = $fb.turn('page');
-        $fb.turn('size', ns.w, ns.h);
-        $fb.turn('page', current);
-        update();
-      }, 150);
-    });
-  });
-</script>
-
-    const s = sizeFromCss();
-
-    $fb.turn({
-      width: s.w,
-      height: s.h,
-      autoCenter: true,
-      duration: 900,
-      gradients: true,
-      acceleration: true
-    });
-
-    // Abrir mostrando spread 1|2 (porque existe la pagina 0 dummy)
-    setTimeout(() => {
-      $fb.turn('page', 2);
+      $fb.bind('turned', update);
+      $('#prev').click(() => $fb.turn('previous'));
+      $('#next').click(() => $fb.turn('next'));
       update();
-    }, 0);
 
-    function update(){
-      const page = $fb.turn('page');
-
-      // page real incluye dummy: 0..N
-      // page logica (lo que ve el usuario) = page-1
-      const logical = Math.max(1, page - 1);
-
-      $('#page-info').text('Página ' + logical + ' de ' + totalPages);
-
-      // No permitir volver a la portada sola (page 1) ni a dummy (page 0)
-      $('#prev').prop('disabled', page <= 2);
-
-      // final real es realTotal
-      $('#next').prop('disabled', page >= realTotal);
-    }
-
-    $fb.bind('turned', update);
-    $('#prev').click(() => $fb.turn('previous'));
-    $('#next').click(() => $fb.turn('next'));
-
-    update();
-
-    let t = null;
-    window.addEventListener('resize', () => {
-      clearTimeout(t);
-      t = setTimeout(() => {
-        const ns = sizeFromCss();
-        const current = $fb.turn('page');
-        $fb.turn('size', ns.w, ns.h);
-        $fb.turn('page', current);
-        update();
-      }, 150);
+      let t = null;
+      window.addEventListener('resize', () => {
+        clearTimeout(t);
+        t = setTimeout(() => {
+          const ns = sizeFromCss();
+          $fb.turn('size', ns.w, ns.h);
+          update();
+        }, 150);
+      });
     });
-  });
-</script>
+  </script>
 </body>
 </html>`;
 
