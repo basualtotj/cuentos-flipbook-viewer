@@ -399,13 +399,13 @@ async function serveFlipbook(res, subdomain) {
       gap:14px;
     }
 
-    /* Fullscreen helper UI (when it's not intuitive to drag page corners) */
-    .fs-controls{ display:none; }
-    .fs-hint{ display:none; }
-    body.fullscreen .fs-controls,
-    body.ios-fullscreen .fs-controls{ display:flex; }
-    body.fullscreen .fs-hint,
-    body.ios-fullscreen .fs-hint{ display:block; }
+  /* Fullscreen helper UI (when it's not intuitive to drag page corners) */
+  .fs-controls{ display:none; }
+  .fs-hint{ display:none; }
+  body.fullscreen .fs-controls,
+  body.ios-fullscreen .fs-controls{ display:flex; }
+  body.fullscreen .fs-hint,
+  body.ios-fullscreen .fs-hint{ display:block; }
 
     .fs-controls{
       position: fixed;
@@ -417,12 +417,15 @@ async function serveFlipbook(res, subdomain) {
       gap: 10px;
       pointer-events: none;
     }
-    .fs-controls .left,
-    .fs-controls .right{
+  .fs-controls .left,
+  .fs-controls .right{
       display:flex;
       gap:10px;
       pointer-events: auto;
     }
+
+  /* Important: override generic places where 'button' might be hidden/blocked */
+  .fs-controls button{ display:inline-flex; align-items:center; justify-content:center; }
 
     .fs-hint{
       position: fixed;
@@ -484,6 +487,12 @@ async function serveFlipbook(res, subdomain) {
       border-radius: 12px;
       background: rgba(0,0,0,0.7);
       z-index: 9999;
+    }
+
+    /* In fullscreen, keep bottom controls visible and compact */
+    body.fullscreen .controls,
+    body.ios-fullscreen .controls{
+      gap: 10px;
     }
 
   /* iOS fallback (Safari iOS doesn't support Fullscreen API on arbitrary elements) */
@@ -614,7 +623,8 @@ async function serveFlipbook(res, subdomain) {
 
       function update(){
         const page = $fb.turn('page');
-        $('#page-info').text('Página ' + page + ' de ' + imageCount);
+  const isIosImmersive = document.body.classList.contains('ios-fullscreen');
+  $('#page-info').text((isIosImmersive ? '' : 'Página ') + page + ' de ' + imageCount);
         $('#prev').prop('disabled', page === 1);
         $('#next').prop('disabled', page === imageCount);
   $('#fs-prev').prop('disabled', page === 1);
@@ -714,7 +724,10 @@ async function serveFlipbook(res, subdomain) {
         requestAnimationFrame(() => {
           setTimeout(() => {
             if (on) {
-              const rect = $fb[0].getBoundingClientRect();
+              // When fullscreen is active, the element's rect should match the fullscreen viewport.
+              // Prefer using the fullscreen element box (some browsers report 0 briefly).
+              const el = (document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement) || $fb[0];
+              const rect = el.getBoundingClientRect();
               const w = rect.width || window.innerWidth;
               const h = rect.height || window.innerHeight;
               let newW, newH;
