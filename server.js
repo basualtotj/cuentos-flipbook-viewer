@@ -110,7 +110,7 @@ function serveLandingPage(res) {
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Cuentos Personalizados</title>
   <style>
     body{font-family:Arial,sans-serif;max-width:720px;margin:50px auto;line-height:1.6;padding:20px}
@@ -341,6 +341,8 @@ async function serveFlipbook(res, subdomain) {
       align-items:center;
       gap:14px;
     }
+
+  html, body{ height: 100%; }
     .header{
       width:min(96vw, var(--maxw));
       background: var(--panel);
@@ -397,6 +399,49 @@ async function serveFlipbook(res, subdomain) {
       gap:14px;
     }
 
+    /* Fullscreen helper UI (when it's not intuitive to drag page corners) */
+    .fs-controls{ display:none; }
+    .fs-hint{ display:none; }
+    body.fullscreen .fs-controls,
+    body.ios-fullscreen .fs-controls{ display:flex; }
+    body.fullscreen .fs-hint,
+    body.ios-fullscreen .fs-hint{ display:block; }
+
+    .fs-controls{
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      top: 12px;
+      z-index: 10001;
+      justify-content: space-between;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .fs-controls .left,
+    .fs-controls .right{
+      display:flex;
+      gap:10px;
+      pointer-events: auto;
+    }
+
+    .fs-hint{
+      position: fixed;
+      left: 50%;
+      bottom: 72px;
+      transform: translateX(-50%);
+      z-index: 10001;
+      font-size: 13px;
+      color: rgba(255,255,255,0.9);
+      background: rgba(0,0,0,0.55);
+      padding: 8px 10px;
+      border-radius: 999px;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      user-select: none;
+      opacity: 0;
+      transition: opacity 180ms ease;
+    }
+
     /* Fullscreen styles */
     #flipbook:fullscreen{
       width: 100vw;
@@ -441,8 +486,8 @@ async function serveFlipbook(res, subdomain) {
       z-index: 9999;
     }
 
-    /* iOS fallback (Safari iOS doesn't support Fullscreen API on arbitrary elements) */
-    body.ios-fullscreen{ overflow: hidden; }
+  /* iOS fallback (Safari iOS doesn't support Fullscreen API on arbitrary elements) */
+  body.ios-fullscreen{ overflow: hidden; background:#000; }
     body.ios-fullscreen .header{ display:none; }
     body.ios-fullscreen #flipbook{
       position: fixed;
@@ -490,6 +535,17 @@ async function serveFlipbook(res, subdomain) {
       .header h1{ font-size:18px; }
       button{ padding: 9px 12px; font-size:14px; }
     }
+
+    .fs-nav{
+      padding: 12px 14px;
+      font-size: 14px;
+      border-radius: 12px;
+      background: rgba(102,126,234,0.95);
+    }
+    .fs-close{
+      background: rgba(255,255,255,0.16);
+      color:#fff;
+    }
   </style>
 </head>
 <body>
@@ -505,6 +561,18 @@ async function serveFlipbook(res, subdomain) {
     ${pagesHtml}
   </div>
 
+  <div class="fs-controls" aria-hidden="true">
+    <div class="left">
+      <button class="fs-nav" id="fs-prev">◀</button>
+      <button class="fs-nav" id="fs-next">▶</button>
+    </div>
+    <div class="right">
+      <button class="fs-nav fs-close" id="fs-close">✕</button>
+    </div>
+  </div>
+
+  <div class="fs-hint" id="fs-hint">Usa ◀ ▶ o arrastra (también teclado)</div>
+
   <div class="controls">
     <button id="prev">◀ Anterior</button>
     <span id="page-info">Página 1 de ${imageCount}</span>
@@ -517,6 +585,12 @@ async function serveFlipbook(res, subdomain) {
       const imageCount = ${imageCount}; // 23 imágenes (0.jpg a 22.jpg)
       const $fb = $('#flipbook');
 
+      const uiState = {
+        normalW: null,
+        normalH: null,
+        hintTimer: null,
+      };
+
       function sizeFromCss(){
         const w = $fb.width();
         const h = $fb.height();
@@ -524,6 +598,9 @@ async function serveFlipbook(res, subdomain) {
       }
 
       const s = sizeFromCss();
+
+  uiState.normalW = s.w;
+  uiState.normalH = s.h;
 
       $fb.turn({
         width: s.w,
@@ -540,11 +617,15 @@ async function serveFlipbook(res, subdomain) {
         $('#page-info').text('Página ' + page + ' de ' + imageCount);
         $('#prev').prop('disabled', page === 1);
         $('#next').prop('disabled', page === imageCount);
+  $('#fs-prev').prop('disabled', page === 1);
+  $('#fs-next').prop('disabled', page === imageCount);
       }
 
       $fb.bind('turned', update);
       $('#prev').click(() => $fb.turn('previous'));
       $('#next').click(() => $fb.turn('next'));
+  $('#fs-prev').click(() => $fb.turn('previous'));
+  $('#fs-next').click(() => $fb.turn('next'));
       update();
 
       const fsBtn = document.getElementById('fullscreen');
@@ -562,6 +643,17 @@ async function serveFlipbook(res, subdomain) {
       function setFullscreenUi(on) {
         document.body.classList.toggle('fullscreen', on);
         if (fsBtn) fsBtn.textContent = on ? '✕ Salir' : '⛶ Pantalla completa';
+
+        const hint = document.getElementById('fs-hint');
+        if (hint) {
+          if (uiState.hintTimer) clearTimeout(uiState.hintTimer);
+          if (on) {
+            hint.style.opacity = '1';
+            uiState.hintTimer = setTimeout(() => { hint.style.opacity = '0'; }, 3500);
+          } else {
+            hint.style.opacity = '0';
+          }
+        }
       }
 
       function requestFullscreen(el) {
@@ -584,7 +676,13 @@ async function serveFlipbook(res, subdomain) {
             const on = document.body.classList.contains('ios-fullscreen');
             fsBtn.textContent = on ? '✕ Cerrar' : '⛶ Pantalla completa';
             if (on) {
-              window.scrollTo(0, $fb.offset().top - 10);
+              // Best-effort: scroll to top to reduce Safari bars.
+              window.scrollTo(0, 0);
+              document.documentElement.style.overflow = 'hidden';
+              document.body.style.overflow = 'hidden';
+            } else {
+              document.documentElement.style.overflow = '';
+              document.body.style.overflow = '';
             }
             setTimeout(() => {
               const w = window.innerWidth;
@@ -613,39 +711,108 @@ async function serveFlipbook(res, subdomain) {
         const on = isFullscreen();
         setFullscreenUi(on);
 
-        setTimeout(() => {
-          if (on) {
-            // Use the element's effective fullscreen box for sizing (more accurate than innerWidth/innerHeight).
-            const rect = $fb[0].getBoundingClientRect();
-            const w = rect.width || window.innerWidth;
-            const h = rect.height || window.innerHeight;
-            let newW, newH;
-            if (w / h > BOOK_ASPECT) {
-              newH = h;
-              newW = h * BOOK_ASPECT;
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            if (on) {
+              const rect = $fb[0].getBoundingClientRect();
+              const w = rect.width || window.innerWidth;
+              const h = rect.height || window.innerHeight;
+              let newW, newH;
+              if (w / h > BOOK_ASPECT) {
+                newH = h;
+                newW = h * BOOK_ASPECT;
+              } else {
+                newW = w;
+                newH = w / BOOK_ASPECT;
+              }
+              $fb.turn('size', newW, newH);
             } else {
-              newW = w;
-              newH = w / BOOK_ASPECT;
+              // Restore exact normal size to avoid leaving a “zoomed” state.
+              const ns = sizeFromCss();
+              uiState.normalW = ns.w;
+              uiState.normalH = ns.h;
+              $fb.turn('size', uiState.normalW, uiState.normalH);
             }
-            $fb.turn('size', newW, newH);
-          } else {
-            const ns = sizeFromCss();
-            $fb.turn('size', ns.w, ns.h);
-          }
-          update();
-        }, 50);
+            update();
+          }, 80);
+        });
       }
 
       document.addEventListener('fullscreenchange', onFullscreenChange);
       document.addEventListener('webkitfullscreenchange', onFullscreenChange);
       document.addEventListener('msfullscreenchange', onFullscreenChange);
 
+      // Keyboard navigation in fullscreen (and iOS immersive mode)
+      document.addEventListener('keydown', (e) => {
+        const inFs = isFullscreen() || document.body.classList.contains('ios-fullscreen');
+        if (!inFs) return;
+
+        if (e.key === 'ArrowLeft') { e.preventDefault(); $fb.turn('previous'); }
+        if (e.key === 'ArrowRight') { e.preventDefault(); $fb.turn('next'); }
+        if (e.key === 'Escape') {
+          if (document.body.classList.contains('ios-fullscreen')) {
+            document.body.classList.remove('ios-fullscreen');
+            if (fsBtn) fsBtn.textContent = '⛶ Pantalla completa';
+            document.documentElement.style.overflow = '';
+            document.body.style.overflow = '';
+            setTimeout(() => {
+              const ns = sizeFromCss();
+              uiState.normalW = ns.w;
+              uiState.normalH = ns.h;
+              $fb.turn('size', uiState.normalW, uiState.normalH);
+              update();
+            }, 80);
+          }
+        }
+      });
+
+      // Close button (works in both desktop fullscreen + iOS immersive)
+      const fsClose = document.getElementById('fs-close');
+      if (fsClose) {
+        fsClose.addEventListener('click', () => {
+          if (document.body.classList.contains('ios-fullscreen')) {
+            document.body.classList.remove('ios-fullscreen');
+            if (fsBtn) fsBtn.textContent = '⛶ Pantalla completa';
+            document.documentElement.style.overflow = '';
+            document.body.style.overflow = '';
+            setTimeout(() => {
+              const ns = sizeFromCss();
+              uiState.normalW = ns.w;
+              uiState.normalH = ns.h;
+              $fb.turn('size', uiState.normalW, uiState.normalH);
+              update();
+            }, 80);
+            return;
+          }
+          if (isFullscreen()) exitFullscreen();
+        });
+      }
+
       let t = null;
       window.addEventListener('resize', () => {
         clearTimeout(t);
         t = setTimeout(() => {
-          const ns = sizeFromCss();
-          $fb.turn('size', ns.w, ns.h);
+          const inFs = isFullscreen() || document.body.classList.contains('ios-fullscreen');
+          if (!inFs) {
+            const ns = sizeFromCss();
+            uiState.normalW = ns.w;
+            uiState.normalH = ns.h;
+            $fb.turn('size', uiState.normalW, uiState.normalH);
+            update();
+            return;
+          }
+
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          let newW, newH;
+          if (w / h > BOOK_ASPECT) {
+            newH = h;
+            newW = h * BOOK_ASPECT;
+          } else {
+            newW = w;
+            newH = w / BOOK_ASPECT;
+          }
+          $fb.turn('size', newW, newH);
           update();
         }, 150);
       });
