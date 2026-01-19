@@ -425,6 +425,32 @@ async function serveFlipbook(res, subdomain) {
       background: rgba(0,0,0,0.7);
       z-index: 9999;
     }
+
+    /* iOS fallback (Safari iOS doesn't support Fullscreen API on arbitrary elements) */
+    body.ios-fullscreen{ overflow: hidden; }
+    body.ios-fullscreen .header{ display:none; }
+    body.ios-fullscreen #flipbook{
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 9999;
+      background: #000;
+      margin: 0;
+      border-radius: 0;
+    }
+    body.ios-fullscreen .controls{
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10000;
+      background: rgba(0,0,0,0.8);
+      padding: 12px 20px;
+      border-radius: 30px;
+      width: auto;
+    }
     button{
       padding: 10px 14px;
       border:0;
@@ -500,6 +526,12 @@ async function serveFlipbook(res, subdomain) {
 
       const fsBtn = document.getElementById('fullscreen');
 
+      const BOOK_ASPECT = ${BOOK_ASPECT};
+
+      function isIOS() {
+        return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      }
+
       function isFullscreen() {
         return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
       }
@@ -523,21 +555,58 @@ async function serveFlipbook(res, subdomain) {
 
       if (fsBtn) {
         fsBtn.addEventListener('click', () => {
-          if (isFullscreen()) {
-            exitFullscreen();
-          } else {
-            requestFullscreen($fb[0]);
+          if (isIOS()) {
+            // iOS immersive mode (no Fullscreen API)
+            document.body.classList.toggle('ios-fullscreen');
+            const on = document.body.classList.contains('ios-fullscreen');
+            fsBtn.textContent = on ? '✕ Cerrar' : '⛶ Pantalla completa';
+            if (on) {
+              window.scrollTo(0, $fb.offset().top - 10);
+            }
+            setTimeout(() => {
+              const w = window.innerWidth;
+              const h = window.innerHeight;
+              let newW, newH;
+              if (w / h > BOOK_ASPECT) {
+                newH = h;
+                newW = h * BOOK_ASPECT;
+              } else {
+                newW = w;
+                newH = w / BOOK_ASPECT;
+              }
+              $fb.turn('size', newW, newH);
+              update();
+            }, 50);
+            return;
           }
+
+          if (isFullscreen()) exitFullscreen();
+          else requestFullscreen($fb[0]);
         });
       }
 
       function onFullscreenChange() {
+        // Desktop fullscreen: resize Turn.js to fit viewport while preserving book aspect.
         const on = isFullscreen();
         setFullscreenUi(on);
-        // Turn.js needs a manual resize when the container changes.
+
         setTimeout(() => {
-          const ns = sizeFromCss();
-          $fb.turn('size', ns.w, ns.h);
+          if (on) {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            let newW, newH;
+            if (w / h > BOOK_ASPECT) {
+              newH = h;
+              newW = h * BOOK_ASPECT;
+            } else {
+              newW = w;
+              newH = w / BOOK_ASPECT;
+            }
+            $fb.turn('size', newW, newH);
+          } else {
+            const ns = sizeFromCss();
+            $fb.turn('size', ns.w, ns.h);
+          }
           update();
         }, 50);
       }
