@@ -271,7 +271,6 @@ async function handleCrearCuento(req, res) {
   }
 }
 
-// ====== Flipbook (subdominio) ======
 async function serveFlipbook(res, subdomain) {
   try {
     const [rows] = await pool.execute(
@@ -287,15 +286,15 @@ async function serveFlipbook(res, subdomain) {
     await pool.execute('UPDATE cuentos SET vistas = COALESCE(vistas, 0) + 1 WHERE id = ?', [c.id]);
 
     const folder = c.flipbook_path || 'cuento-prueba';
-    const totalPages = 23;
-
-    // A4 horizontal (una página): 2970/2100 = 1.4142857
-    // Libro abierto (doble página): 2 * 1.4142857 = 2.8285714
+    
+    // IMPORTANTE: tienes imágenes 0.jpg a 22.jpg = 23 archivos
+    const imageCount = 23; // cantidad de archivos JPG
+    
     const BOOK_ASPECT = 2.8285714;
 
-    const pagesHtml = Array.from({ length: totalPages }, (_, i) => {
-      const n = i ;
-      return `<div class="page"><img src="/flipbooks/${encodeURIComponent(folder)}/${n}.jpg" alt="Página ${n}"></div>`;
+    // Generar divs de páginas: 0.jpg hasta 22.jpg
+    const pagesHtml = Array.from({ length: imageCount }, (_, i) => {
+      return `<div class="page"><img src="/flipbooks/${encodeURIComponent(folder)}/${i}.jpg" alt="Página ${i}"></div>`;
     }).join('\n');
 
     const safeNombre = escapeHtml(c.nombre_nino || 'Tu Cuento');
@@ -347,11 +346,10 @@ async function serveFlipbook(res, subdomain) {
     .badge.ok{ background: rgba(34,197,94,.18); color:#4ade80; }
     .badge.warn{ background: rgba(251,191,36,.18); color:#fbbf24; }
 
-    /* === CLAVE: contenedor con proporción correcta antes de turn() === */
     #flipbook{
       width: min(96vw, var(--maxw));
-      aspect-ratio: ${BOOK_ASPECT}; /* doble página A4 horizontal */
-      height: auto; /* el alto lo define aspect-ratio */
+      aspect-ratio: ${BOOK_ASPECT};
+      height: auto;
       margin: 6px 0;
       box-shadow: 0 12px 40px rgba(0,0,0,.55);
       border-radius: 14px;
@@ -359,7 +357,6 @@ async function serveFlipbook(res, subdomain) {
       background: #111;
     }
 
-    /* turn.js mete páginas dentro: asegura que ocupen el alto */
     #flipbook .page{
       background:#111;
       width: 50%;
@@ -369,12 +366,11 @@ async function serveFlipbook(res, subdomain) {
       justify-content:center;
     }
 
-    /* IMAGEN: fill sin bordes */
     #flipbook .page img{
       width:100%;
       height:100%;
       display:block;
-      object-fit: cover; /* <- si quieres NO recortar, cambia a contain */
+      object-fit: cover;
       background:#111;
     }
 
@@ -418,17 +414,16 @@ async function serveFlipbook(res, subdomain) {
 
   <div class="controls">
     <button id="prev">◀ Anterior</button>
-    <span id="page-info">Página 1 de ${totalPages}</span>
+    <span id="page-info">Página 1 de ${imageCount}</span>
     <button id="next">Siguiente ▶</button>
   </div>
 
   <script>
     $(function () {
-      const totalPages = ${totalPages};
+      const imageCount = ${imageCount}; // 23 imágenes (0.jpg a 22.jpg)
       const $fb = $('#flipbook');
 
       function sizeFromCss(){
-        // OJO: con aspect-ratio, height está bien calculado por CSS
         const w = $fb.width();
         const h = $fb.height();
         return { w, h };
@@ -439,6 +434,7 @@ async function serveFlipbook(res, subdomain) {
       $fb.turn({
         width: s.w,
         height: s.h,
+        pages: imageCount, // CRÍTICO: Turn.js debe saber que hay 23 páginas
         autoCenter: true,
         duration: 900,
         gradients: true,
@@ -447,9 +443,9 @@ async function serveFlipbook(res, subdomain) {
 
       function update(){
         const page = $fb.turn('page');
-        $('#page-info').text('Página ' + page + ' de ' + totalPages);
+        $('#page-info').text('Página ' + page + ' de ' + imageCount);
         $('#prev').prop('disabled', page === 1);
-        $('#next').prop('disabled', page === totalPages);
+        $('#next').prop('disabled', page === imageCount);
       }
 
       $fb.bind('turned', update);
@@ -477,6 +473,7 @@ async function serveFlipbook(res, subdomain) {
     return sendHtml(res, 500, 'Error servidor');
   }
 }
+
 
 // ====== Static: /flipbooks/... jpg ======
 const PUBLIC_DIR = path.join(__dirname, 'public');
