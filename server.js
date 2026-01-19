@@ -424,6 +424,8 @@ async function serveFlipbook(res, subdomain) {
       pointer-events: auto;
     }
 
+  body.fullscreen .fs-controls{ pointer-events: auto; }
+
   /* Important: override generic places where 'button' might be hidden/blocked */
   .fs-controls button{ display:inline-flex; align-items:center; justify-content:center; }
 
@@ -558,6 +560,24 @@ async function serveFlipbook(res, subdomain) {
       background: rgba(255,255,255,0.16);
       color:#fff;
     }
+
+    /* Ensure fullscreen overlay controls are prominent on desktop fullscreen */
+    body.fullscreen .fs-controls{
+      top: auto;
+      bottom: 18px;
+      left: 50%;
+      right: auto;
+      transform: translateX(-50%);
+      width: auto;
+      background: rgba(0,0,0,0.65);
+      padding: 10px 12px;
+      border-radius: 16px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    body.fullscreen .fs-controls .left,
+    body.fullscreen .fs-controls .right{ gap: 12px; }
+    body.fullscreen .fs-nav{ padding: 14px 16px; font-size: 16px; }
   </style>
 </head>
 <body>
