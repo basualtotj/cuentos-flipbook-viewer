@@ -287,7 +287,7 @@ async function serveFlipbook(res, subdomain) {
     await pool.execute('UPDATE cuentos SET vistas = COALESCE(vistas, 0) + 1 WHERE id = ?', [c.id]);
 
     const folder = c.flipbook_path || 'cuento-prueba';
-    const totalPages = 20;
+    const totalPages = 22;
 
     // A4 horizontal (una página): 2970/2100 = 1.4142857
     // Libro abierto (doble página): 2 * 1.4142857 = 2.8285714
