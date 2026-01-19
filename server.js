@@ -423,51 +423,69 @@ async function serveFlipbook(res, subdomain) {
   </div>
 
   <script>
-    $(function () {
-      const totalPages = ${totalPages};
-      const $fb = $('#flipbook');
+  $(function () {
+    const totalPages = ${totalPages}; // paginas REALES (ej: 20 imagenes)
+    const realTotal = totalPages + 1; // +1 por la pagina 0 dummy
+    const $fb = $('#flipbook');
 
-      function sizeFromCss(){
-        // OJO: con aspect-ratio, height está bien calculado por CSS
-        const w = $fb.width();
-        const h = $fb.height();
-        return { w, h };
-      }
+    function sizeFromCss(){
+      const w = $fb.width();
+      const h = $fb.height();
+      return { w, h };
+    }
 
-      const s = sizeFromCss();
+    const s = sizeFromCss();
 
-      $fb.turn({
-        width: s.w,
-        height: s.h,
-        autoCenter: true,
-        duration: 900,
-        gradients: true,
-        acceleration: true
-      });
-
-      function update(){
-        const page = $fb.turn('page');
-        $('#page-info').text('Página ' + page + ' de ' + totalPages);
-        $('#prev').prop('disabled', page === 1);
-        $('#next').prop('disabled', page === totalPages);
-      }
-
-      $fb.bind('turned', update);
-      $('#prev').click(() => $fb.turn('previous'));
-      $('#next').click(() => $fb.turn('next'));
-      update();
-
-      let t = null;
-      window.addEventListener('resize', () => {
-        clearTimeout(t);
-        t = setTimeout(() => {
-          const ns = sizeFromCss();
-          $fb.turn('size', ns.w, ns.h);
-          update();
-        }, 150);
-      });
+    $fb.turn({
+      width: s.w,
+      height: s.h,
+      autoCenter: true,
+      duration: 900,
+      gradients: true,
+      acceleration: true
     });
-  </script>
+
+    // Abrir mostrando spread 1|2 (porque existe la pagina 0 dummy)
+    setTimeout(() => {
+      $fb.turn('page', 2);
+      update();
+    }, 0);
+
+    function update(){
+      const page = $fb.turn('page');
+
+      // page real incluye dummy: 0..N
+      // page logica (lo que ve el usuario) = page-1
+      const logical = Math.max(1, page - 1);
+
+      $('#page-info').text('Página ' + logical + ' de ' + totalPages);
+
+      // No permitir volver a la portada sola (page 1) ni a dummy (page 0)
+      $('#prev').prop('disabled', page <= 2);
+
+      // final real es realTotal
+      $('#next').prop('disabled', page >= realTotal);
+    }
+
+    $fb.bind('turned', update);
+    $('#prev').click(() => $fb.turn('previous'));
+    $('#next').click(() => $fb.turn('next'));
+
+    update();
+
+    let t = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const ns = sizeFromCss();
+        const current = $fb.turn('page');
+        $fb.turn('size', ns.w, ns.h);
+        $fb.turn('page', current);
+        update();
+      }, 150);
+    });
+  });
+</script>
 </body>
 </html>`;
 
