@@ -218,16 +218,20 @@ async function serveFlipbook(res, subdomain) {
     .header { color:#fff; text-align:center; margin-bottom:20px; }
     .header h1 { margin:0 0 10px; font-size:2em; }
     .header p { margin:5px 0; opacity:.85; }
-    #flipbook { width:800px; height:600px; margin:20px auto; box-shadow:0 4px 20px rgba(0,0,0,.5); }
-    #flipbook .page { width:400px; height:600px; background:#fff; display:flex; align-items:center; justify-content:center; }
-    #flipbook .page img { width:100%; height:100%; object-fit:contain; }
+  /* A4 horizontal ratio: 1.414:1 (ej: 1920x1360). */
+  #flipbook { width:850px; height:601px; margin:20px auto; box-shadow:0 4px 20px rgba(0,0,0,.5); }
+  /* Each page is a viewport: clip overflow so the image can cover fully */
+  #flipbook .page { width:425px; height:601px; background:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  /* A4 horizontal images should fill the page viewport (no letterboxing) */
+  #flipbook .page img { width:100%; height:100%; object-fit:cover; }
     .controls { margin-top:20px; text-align:center; }
     .controls button { padding:10px 20px; margin:0 10px; background:#667eea; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:16px; }
     .controls button:hover { background:#5568d3; }
     .controls button:disabled { background:#666; cursor:not-allowed; }
-    @media (max-width: 850px) {
-      #flipbook { width:90vw; height: calc(90vw * 0.75); }
-      #flipbook .page { width:45vw; height: calc(90vw * 0.75); }
+    @media (max-width: 900px) {
+  /* Keep A4 horizontal ratio: height = width / 1.414 */
+  #flipbook { width:90vw; height: calc(90vw / 1.414); }
+  #flipbook .page { width:45vw; height: calc(90vw / 1.414); }
     }
   </style>
 </head>
@@ -259,8 +263,8 @@ async function serveFlipbook(res, subdomain) {
       const totalPages = ${totalPages};
 
       $('#flipbook').turn({
-        width: 800,
-        height: 600,
+  width: 850,
+  height: 601,
         autoCenter: true,
         duration: 900,
         gradients: true,
