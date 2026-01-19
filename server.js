@@ -46,22 +46,51 @@ function generateCodigoUnico() {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
+/**
+ * Host seguro: SOLO aceptamos:
+ * - cuentosparasiempre.com
+ * - www.cuentosparasiempre.com
+ * - *.cuentosparasiempre.com
+ *
+ * Nota: Preferimos req.headers.host; usamos x-forwarded-host solo como fallback
+ * porque puede ser spoofeado si la app es accesible directo.
+ */
 function getRequestHost(req) {
-  const raw = (req.headers['x-forwarded-host'] || req.headers.host || '').toString().toLowerCase();
-  return raw.split(',')[0].trim().split(':')[0];
+  const hostHeader = (req.headers.host || '').toString().toLowerCase();
+  const xfhHeader = (req.headers['x-forwarded-host'] || '').toString().toLowerCase();
+
+  const raw = (hostHeader || xfhHeader).split(',')[0].trim();
+  const clean = raw.split(':')[0].trim();
+
+  if (!clean) return '';
+
+  const ok =
+    clean === MAIN_DOMAIN ||
+    clean === `www.${MAIN_DOMAIN}` ||
+    clean.endsWith(`.${MAIN_DOMAIN}`);
+
+  return ok ? clean : '';
 }
 
 function parseSubdomainFromHost(cleanHost) {
   if (!cleanHost) return null;
+
   if (cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`) {
     return null;
   }
+
   if (!cleanHost.endsWith(`.${MAIN_DOMAIN}`)) {
     return null;
   }
-  const prefix = cleanHost.slice(0, -(`.${MAIN_DOMAIN}`).length);
+
+  const prefix = cleanHost.slice(0, -(`.${MAIN_DOMAIN}`).length); // lo de antes del .dominio
   const sd = prefix.replace(/^www\./, '');
+
   if (!sd) return null;
+
+  // Validación fuerte del subdomain proveniente del host
+  if (!isValidSubdomain(sd)) return null;
+
   return sd;
 }
 
@@ -106,6 +135,15 @@ function collectPayloadFromParams(params) {
   return payload;
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function serveLandingPage(res) {
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -144,21 +182,19 @@ function serveLandingPage(res) {
   <script>
     const form = document.getElementById('form');
     const out = document.getElementById('out');
-    
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       out.textContent = 'Creando cuento...';
-      
+
       try {
         const data = new URLSearchParams(new FormData(e.target));
         const r = await fetch('/api/crear-cuento', { method: 'POST', body: data });
         const result = await r.json();
-        
+
         if (result.success && result.checkout_url) {
           out.textContent = 'Cuento creado. Redirigiendo a pago...';
-          setTimeout(() => {
-            window.location.href = result.checkout_url;
-          }, 1000);
+          setTimeout(() => { window.location.href = result.checkout_url; }, 800);
         } else {
           out.textContent = 'Error: ' + (result.error || 'Desconocido');
         }
@@ -184,7 +220,11 @@ async function serveFlipbook(res, subdomain) {
     }
 
     const c = rows[0];
-    await pool.execute('UPDATE cuentos SET vistas = COALESCE(vistas, 0) + 1 WHERE id = ?', [c.id]);
+
+    await pool.execute(
+      'UPDATE cuentos SET vistas = COALESCE(vistas, 0) + 1 WHERE id = ?',
+      [c.id]
+    );
 
     const html = `<!DOCTYPE html>
 <html lang="es">
@@ -212,15 +252,6 @@ async function serveFlipbook(res, subdomain) {
   }
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
 async function handleCrearCuento(req, res) {
   try {
     const body = await readBody(req);
@@ -236,54 +267,52 @@ async function handleCrearCuento(req, res) {
 
     const subdomain = normalizeSubdomain(subdomainRaw);
     if (!isValidSubdomain(subdomain)) {
-      return sendJson(res, 400, {
-        success: false,
-        error: 'Subdominio inválido. Usa letras, números y guiones.'
-      });
+      return sendJson(res, 400, { success: false, error: 'Subdominio inválido. Usa letras, números y guiones.' });
     }
 
     const payload = collectPayloadFromParams(params);
     const payloadJson = JSON.stringify(payload);
 
+    // Genera un codigo unico REAL (si colisiona, reintenta)
     let codigo = null;
-    for (let i = 0; i < 5; i += 1) {
+    let codigoOk = false;
+    for (let i = 0; i < 8; i++) {
       codigo = generateCodigoUnico();
-      const [existsCode] = await pool.execute(
+      const [r] = await pool.execute(
         'SELECT id FROM cuentos WHERE codigo_unico = ? LIMIT 1',
         [codigo]
       );
-      if (!existsCode.length) break;
+      if (!r.length) { codigoOk = true; break; }
     }
-
-    if (!codigo) {
+    if (!codigoOk) {
       return sendJson(res, 500, { success: false, error: 'No se pudo generar código único' });
     }
 
-    const [existsSubdomain] = await pool.execute(
-      'SELECT id FROM cuentos WHERE subdomain = ? LIMIT 1',
-      [subdomain]
-    );
-
-    if (existsSubdomain.length > 0) {
-      return sendJson(res, 409, { success: false, error: 'Subdominio ya en uso' });
+    // INSERT directo + captura duplicado (evita race condition)
+    let cuentoId;
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO cuentos (
+          subdomain,
+          nombre_nino,
+          codigo_unico,
+          email_cliente,
+          estado,
+          payload_json
+        ) VALUES (?, ?, ?, ?, 'pendiente', ?)`,
+        [subdomain, nombre, codigo, email || null, payloadJson]
+      );
+      cuentoId = result.insertId;
+    } catch (e) {
+      if (e && e.code === 'ER_DUP_ENTRY') {
+        return sendJson(res, 409, { success: false, error: 'Subdominio ya en uso' });
+      }
+      throw e;
     }
 
-    const [result] = await pool.execute(
-      `INSERT INTO cuentos (
-        subdomain,
-        nombre_nino,
-        codigo_unico,
-        email_cliente,
-        estado,
-        payload_json
-      ) VALUES (?, ?, ?, ?, 'pendiente', ?)`,
-      [subdomain, nombre, codigo, email || null, payloadJson]
-    );
-
-    const cuentoId = result.insertId;
-
-    // Crear Stripe Checkout Session con metadata
+    // Stripe Checkout Session con metadata
     const session = await stripe.checkout.sessions.create({
+      // Nota: payment_method_types es opcional en versiones nuevas; no rompe dejarlo.
       payment_method_types: ['card'],
       line_items: [{
         price_data: {
@@ -326,9 +355,23 @@ async function handleCrearCuento(req, res) {
 
 const server = http.createServer(async (req, res) => {
   const cleanHost = getRequestHost(req);
+
+  // Guardrail: si host no es válido, corta.
+  if (!cleanHost) {
+    return sendHtml(res, 404, 'No encontrado');
+  }
+
   const isMainDomain = cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`;
 
-  if (req.method === 'POST' && req.url === '/api/crear-cuento') {
+  // Guardrail de métodos/rutas
+  const isCreateRoute = req.method === 'POST' && req.url === '/api/crear-cuento';
+  const isGet = req.method === 'GET';
+
+  if (!isGet && !isCreateRoute) {
+    return sendHtml(res, 404, 'No encontrado');
+  }
+
+  if (isCreateRoute) {
     return handleCrearCuento(req, res);
   }
 
