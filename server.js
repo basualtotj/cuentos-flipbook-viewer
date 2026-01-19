@@ -422,17 +422,66 @@ async function serveFlipbook(res, subdomain) {
     <button id="next">Siguiente ▶</button>
   </div>
 
-  <script>
+ <script>
   $(function () {
-    const totalPages = ${totalPages}; // paginas REALES (ej: 20 imagenes)
-    const realTotal = totalPages + 1; // +1 por la pagina 0 dummy
+    const totalPages = ${totalPages};
     const $fb = $('#flipbook');
 
-    function sizeFromCss(){
+    function sizeFromCss() {
       const w = $fb.width();
       const h = $fb.height();
       return { w, h };
     }
+
+    function update() {
+      const page = $fb.turn('page');
+      $('#page-info').text('Página ' + page + ' de ' + totalPages);
+      $('#prev').prop('disabled', page === 1);
+      $('#next').prop('disabled', page === totalPages);
+    }
+
+    const s = sizeFromCss();
+
+    $fb.turn({
+      width: s.w,
+      height: s.h,
+      display: 'double',     // importante: libro abierto
+      autoCenter: true,
+      duration: 900,
+      gradients: true,
+      acceleration: true
+    });
+
+    // ✅ Navegación correcta: NO saltar desde portada
+    $('#next').off('click').on('click', function () {
+      const page = $fb.turn('page');
+      if (page === 1) return $fb.turn('page', 2);  // 1 -> 2 (muestra 2-3)
+      return $fb.turn('next');
+    });
+
+    $('#prev').off('click').on('click', function () {
+      const page = $fb.turn('page');
+      if (page === 2) return $fb.turn('page', 1);  // 2 -> 1 (vuelve a portada)
+      return $fb.turn('previous');
+    });
+
+    $fb.bind('turned', update);
+    update();
+
+    // Resize seguro
+    let t = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const ns = sizeFromCss();
+        const current = $fb.turn('page');
+        $fb.turn('size', ns.w, ns.h);
+        $fb.turn('page', current);
+        update();
+      }, 150);
+    });
+  });
+</script>
 
     const s = sizeFromCss();
 
