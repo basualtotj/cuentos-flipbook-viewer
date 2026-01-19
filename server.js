@@ -383,6 +383,12 @@ async function serveFlipbook(res, subdomain) {
       background:#111;
     }
 
+    /* In immersive/fullscreen we prefer to avoid cropping the content */
+    body.fullscreen #flipbook .page img,
+    body.ios-fullscreen #flipbook .page img{
+      object-fit: contain;
+    }
+
     .controls{
       width:min(96vw, var(--maxw));
       display:flex;
@@ -412,6 +418,15 @@ async function serveFlipbook(res, subdomain) {
       background: #000;
       margin: 0;
       border-radius: 0;
+    }
+
+    /* Center the (aspect-ratio fitted) content inside fullscreen viewport */
+    body.fullscreen{ padding:0; }
+    body.fullscreen #flipbook,
+    body.ios-fullscreen #flipbook{
+      display:flex;
+      align-items:center;
+      justify-content:center;
     }
 
     body.fullscreen .controls{
@@ -447,9 +462,17 @@ async function serveFlipbook(res, subdomain) {
       transform: translateX(-50%);
       z-index: 10000;
       background: rgba(0,0,0,0.8);
-      padding: 12px 20px;
-      border-radius: 30px;
+      padding: 8px 10px;
+      border-radius: 18px;
       width: auto;
+    }
+
+    body.ios-fullscreen button{
+      padding: 8px 10px;
+      font-size: 13px;
+    }
+    body.ios-fullscreen #page-info{
+      font-size: 12px;
     }
     button{
       padding: 10px 14px;
@@ -592,8 +615,10 @@ async function serveFlipbook(res, subdomain) {
 
         setTimeout(() => {
           if (on) {
-            const w = window.innerWidth;
-            const h = window.innerHeight;
+            // Use the element's effective fullscreen box for sizing (more accurate than innerWidth/innerHeight).
+            const rect = $fb[0].getBoundingClientRect();
+            const w = rect.width || window.innerWidth;
+            const h = rect.height || window.innerHeight;
             let newW, newH;
             if (w / h > BOOK_ASPECT) {
               newH = h;
