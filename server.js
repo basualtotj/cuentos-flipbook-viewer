@@ -323,15 +323,14 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      // Llamar a Replicate API (FLUX schnell - rápido y barato)
-      const response = await fetch('https://api.replicate.com/v1/predictions', {
+  // Llamar a Replicate API con el formato correcto
+  const response = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${REPLICATE_API_TOKEN}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          version: 'f2ab8a5569279d9b84c84235e4c7df30e7f98e2cd8c35fd9c04de2e4ef6e2f97', // FLUX schnell
           input: {
             prompt: prompt,
             num_outputs: 1,
@@ -360,7 +359,7 @@ const server = http.createServer(async (req, res) => {
       while (result.status !== 'succeeded' && result.status !== 'failed' && attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 1000)); // Esperar 1 segundo
 
-        const checkResponse = await fetch(`https://api.replicate.com/v1/predictions/${result.id}`, {
+        const checkResponse = await fetch(result.urls.get, {
           headers: {
             'Authorization': `Bearer ${REPLICATE_API_TOKEN}`,
           }
