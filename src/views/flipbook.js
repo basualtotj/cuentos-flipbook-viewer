@@ -165,24 +165,18 @@ function flipbookHtml({
       border-radius: 0;
     }
 
-    /* Center the (aspect-ratio fitted) content inside fullscreen viewport */
+    /* Fullscreen should give Turn.js a stable box, then JS will size the book. */
     body.fullscreen{ padding:0; }
-    body.fullscreen #reader,
-    body.ios-fullscreen #reader{
-      display:flex;
-      align-items:center;
-      justify-content:center;
-    }
-
-    /* In fullscreen we want the flipbook to take the available vertical space
-       while keeping room for the controls bar. */
     body.fullscreen #flipbook{
+      position: fixed;
+      inset: 0;
       width: 100vw;
-      height: calc(100vh - 120px);
+      height: 100vh;
       aspect-ratio: auto;
       margin: 0;
       border-radius: 0;
       box-shadow: none;
+      background: #000;
     }
 
     body.fullscreen .controls{
@@ -208,17 +202,14 @@ function flipbookHtml({
     body.ios-fullscreen .header{ display:none; }
     body.ios-fullscreen #flipbook{
       position: fixed;
-      top: 0;
-      left: 0;
+      inset: 0;
       width: 100vw;
       height: 100vh;
       z-index: 9999;
       background: #000;
       margin: 0;
       border-radius: 0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
+      aspect-ratio: auto;
     }
     body.ios-fullscreen .controls{
       position: fixed;
@@ -326,23 +317,10 @@ function flipbookHtml({
   const $reader = $('#reader');
       const $fb = $('#flipbook');
 
-      // Deterministic sizing + UI state (avoid trial-and-error timing issues)
+      // UI state (only for hint timers).
       const uiState = {
-        normalW: null,
-        normalH: null,
         hintTimer: null,
-        inited: false,
       };
-
-      function sizeFromCss(){
-        const el = $fb[0];
-        if (!el) return { w: 1, h: 1 };
-        const rect = el.getBoundingClientRect();
-        return {
-          w: rect.width || 1,
-          h: rect.height || 1,
-        };
-      }
 
       const BOOK_ASPECT = ${BOOK_ASPECT};
 
@@ -352,29 +330,6 @@ function flipbookHtml({
 
       function isFullscreen() {
         return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
-      }
-
-      function getMode() {
-        if (document.body.classList.contains('ios-fullscreen')) return 'ios';
-        if (isFullscreen()) return 'fs';
-        return 'normal';
-      }
-
-      function getTargetBoxForMode(mode) {
-        if (mode === 'normal') {
-          const ns = sizeFromCss();
-          return { w: ns.w, h: ns.h };
-        }
-
-        if (mode === 'fs') {
-          // Use actual fullscreen element box when possible.
-          const el = (document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement) || $fb[0];
-          const rect = el.getBoundingClientRect();
-          return { w: rect.width || window.innerWidth, h: rect.height || window.innerHeight };
-        }
-
-        // iOS immersive simulation: viewport box
-        return { w: window.innerWidth, h: window.innerHeight };
       }
 
       function fitIntoAspect(boxW, boxH) {
@@ -391,29 +346,22 @@ function flipbookHtml({
         return { w: newW, h: newH };
       }
 
-  function applyTurnSize(w, h) {
-        // Turn.js can glitch if called with same size repeatedly; keep it simple.
+      function applyTurnSize(w, h) {
         $fb.turn('size', w, h);
       }
 
-  function fitBook(reason) {
-        const mode = getMode();
-        const box = getTargetBoxForMode(mode);
-
-        if (mode === 'normal') {
-          uiState.normalW = box.w;
-          uiState.normalH = box.h;
-          applyTurnSize(uiState.normalW, uiState.normalH);
-          return;
-        }
-
-        const fitted = fitIntoAspect(box.w, box.h);
+      function fitToViewport() {
+        const fitted = fitIntoAspect(window.innerWidth, window.innerHeight);
         applyTurnSize(fitted.w, fitted.h);
       }
 
-  const s = sizeFromCss();
-  uiState.normalW = s.w;
-  uiState.normalH = s.h;
+      function fitToNormal() {
+        const w = Math.max(1, Math.floor($fb.width() || 1));
+        const h = Math.max(1, Math.floor($fb.height() || 1));
+        applyTurnSize(w, h);
+      }
+
+  const s = { w: Math.max(1, Math.floor($fb.width() || 1)), h: Math.max(1, Math.floor($fb.height() || 1)) };
 
       $fb.turn({
         width: s.w,
@@ -489,11 +437,19 @@ function flipbookHtml({
               document.body.style.overflow = '';
             }
             // Deterministic: apply sizing immediately + after a frame (Safari updates viewport late)
-            fitBook('ios-toggle');
-            requestAnimationFrame(() => {
-              fitBook('ios-toggle-raf');
-              update();
-            });
+            if (on) {
+              fitToViewport();
+              requestAnimationFrame(() => {
+                fitToViewport();
+                update();
+              });
+            } else {
+              fitToNormal();
+              requestAnimationFrame(() => {
+                fitToNormal();
+                update();
+              });
+            }
             return;
           }
 
@@ -506,13 +462,19 @@ function flipbookHtml({
         const on = isFullscreen();
         setFullscreenUi(on);
 
-        // Deterministic sizing: compute from the current mode.
-        // Apply twice (now + next frame) to avoid transient values on exit.
-        fitBook('fs-change');
-        requestAnimationFrame(() => {
-          fitBook('fs-change-raf');
-          update();
-        });
+        if (on) {
+          fitToViewport();
+          requestAnimationFrame(() => {
+            fitToViewport();
+            update();
+          });
+        } else {
+          fitToNormal();
+          requestAnimationFrame(() => {
+            fitToNormal();
+            update();
+          });
+        }
       }
 
       document.addEventListener('fullscreenchange', onFullscreenChange);
@@ -533,11 +495,11 @@ function flipbookHtml({
             document.documentElement.style.overflow = '';
             document.body.style.overflow = '';
             setTimeout(() => {
-              const ns = sizeFromCss();
-              uiState.normalW = ns.w;
-              uiState.normalH = ns.h;
-              $fb.turn('size', uiState.normalW, uiState.normalH);
-              update();
+              fitToNormal();
+              requestAnimationFrame(() => {
+                fitToNormal();
+                update();
+              });
             }, 80);
           }
         }
@@ -552,9 +514,9 @@ function flipbookHtml({
             if (fsBtn) fsBtn.textContent = '⛶ Pantalla completa';
             document.documentElement.style.overflow = '';
             document.body.style.overflow = '';
-            fitBook('ios-close');
+            fitToNormal();
             requestAnimationFrame(() => {
-              fitBook('ios-close-raf');
+              fitToNormal();
               update();
             });
             return;
@@ -567,20 +529,26 @@ function flipbookHtml({
       window.addEventListener('resize', () => {
         clearTimeout(t);
         t = setTimeout(() => {
-          fitBook('resize');
-          requestAnimationFrame(() => {
-            fitBook('resize-raf');
-            update();
-          });
+          const inViewportMode = isFullscreen() || document.body.classList.contains('ios-fullscreen');
+          if (inViewportMode) {
+            fitToViewport();
+            requestAnimationFrame(() => {
+              fitToViewport();
+              update();
+            });
+          } else {
+            fitToNormal();
+            requestAnimationFrame(() => {
+              fitToNormal();
+              update();
+            });
+          }
         }, 150);
       });
 
-      // Initialize with a deterministic first sizing pass.
-      if (!uiState.inited) {
-        uiState.inited = true;
-        fitBook('init');
-        requestAnimationFrame(() => fitBook('init-raf'));
-      }
+      // Initial sizing.
+      fitToNormal();
+      requestAnimationFrame(() => fitToNormal());
     });
   </script>
 </body>
