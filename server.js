@@ -4,7 +4,7 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const { PORT, MAIN_DOMAIN } = require('./src/config/constants');
-const { getRequestHost, parseSubdomainFromHost, safeJoin, sendHtml, sendJson, readBody } = require('./src/utils/http');
+const { getRequestHost, parseSubdomainFromHost, safeJoin, sendHtml, sendJson, readBody, escapeHtml } = require('./src/utils/http');
 const { handleCrearCuento } = require('./src/routes/api');
 const { serveFlipbook } = require('./src/routes/flipbook');
 const { landingHtml } = require('./src/views/landing');
@@ -398,6 +398,136 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 500, {
         success: false,
         error: e.message
+      });
+    }
+  }
+
+  // ====== Test Puppeteer (Plantilla de texto) ======
+  if (req.method === 'POST' && req.url === '/api/test-puppeteer-template') {
+    try {
+      const body = await readBody(req);
+      const params = new URLSearchParams(body);
+      const texto = params.get('texto') || 'Érase una vez, en un reino muy lejano, vivía una niña llamada Ana que soñaba con volar entre las nubes y tocar las estrellas con sus manos.';
+
+      const puppeteer = require('puppeteer');
+      const path = require('path');
+      const fs = require('fs').promises;
+
+      // Crear carpeta temporal si no existe
+      const tempDir = path.join(__dirname, 'public', 'temp');
+      try {
+        await fs.mkdir(tempDir, { recursive: true });
+      } catch (e) {
+        // Carpeta ya existe
+      }
+
+      const outputPath = path.join(tempDir, 'test-template.jpg');
+
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+
+      const page = await browser.newPage();
+
+      // Configurar viewport para A4 horizontal
+      await page.setViewport({
+        width: 1920,
+        height: 1360,
+        deviceScaleFactor: 1
+      });
+
+      // HTML de la plantilla
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      width: 1920px;
+      height: 1360px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Georgia', serif;
+    }
+    .text-box {
+      background: rgba(255, 255, 255, 0.95);
+      padding: 80px;
+      border-radius: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 1600px;
+      margin: 0 80px;
+    }
+    p {
+      font-size: 52px;
+      line-height: 1.8;
+      color: #2c3e50;
+      text-align: justify;
+      text-indent: 60px;
+    }
+    .decoration {
+      position: absolute;
+      font-size: 120px;
+      opacity: 0.1;
+    }
+    .decoration.top-left {
+      top: 40px;
+      left: 40px;
+    }
+    .decoration.bottom-right {
+      bottom: 40px;
+      right: 40px;
+    }
+  </style>
+</head>
+<body>
+  <div class="decoration top-left">✨</div>
+  <div class="decoration bottom-right">📖</div>
+  <div class="text-box">
+    <p>${escapeHtml(texto)}</p>
+  </div>
+</body>
+</html>`;
+
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+
+      // Esperar un poco para que se renderice
+      await page.waitForTimeout(500);
+
+      // Capturar screenshot
+      await page.screenshot({
+        path: outputPath,
+        type: 'jpeg',
+        quality: 90
+      });
+
+      await browser.close();
+
+      // Leer la imagen generada
+      const imageBuffer = await fs.readFile(outputPath);
+      const base64Image = imageBuffer.toString('base64');
+
+      return sendJson(res, 200, {
+        success: true,
+        message: 'Plantilla generada con Puppeteer',
+        image_data: `data:image/jpeg;base64,${base64Image}`,
+        image_path: '/temp/test-template.jpg',
+        texto_usado: texto,
+        dimensions: '1920x1360px'
+      });
+
+    } catch (e) {
+      console.error('Error test Puppeteer template:', e);
+      return sendJson(res, 500, {
+        success: false,
+        error: e.message,
+        stack: e.stack
       });
     }
   }
