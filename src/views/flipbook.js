@@ -66,7 +66,6 @@ function flipbookHtml({
 
     #flipbook .page{
       background:#111;
-      width: 50%;
       height: 100%;
       display:flex;
       align-items:center;
@@ -143,22 +142,22 @@ function flipbookHtml({
       transition: opacity 180ms ease;
     }
 
-    /* Fullscreen styles */
-    #flipbook:fullscreen{
+  /* Fullscreen styles */
+  #reader:fullscreen{
       width: 100vw;
       height: 100vh;
       background: #000;
       margin: 0;
       border-radius: 0;
     }
-    #flipbook:-webkit-full-screen{
+  #reader:-webkit-full-screen{
       width: 100vw;
       height: 100vh;
       background: #000;
       margin: 0;
       border-radius: 0;
     }
-    #flipbook:-ms-fullscreen{
+  #reader:-ms-fullscreen{
       width: 100vw;
       height: 100vh;
       background: #000;
@@ -168,11 +167,22 @@ function flipbookHtml({
 
     /* Center the (aspect-ratio fitted) content inside fullscreen viewport */
     body.fullscreen{ padding:0; }
-    body.fullscreen #flipbook,
-    body.ios-fullscreen #flipbook{
+    body.fullscreen #reader,
+    body.ios-fullscreen #reader{
       display:flex;
       align-items:center;
       justify-content:center;
+    }
+
+    /* In fullscreen we want the flipbook to take the available vertical space
+       while keeping room for the controls bar. */
+    body.fullscreen #flipbook{
+      width: 100vw;
+      height: calc(100vh - 120px);
+      aspect-ratio: auto;
+      margin: 0;
+      border-radius: 0;
+      box-shadow: none;
     }
 
     body.fullscreen .controls{
@@ -277,40 +287,43 @@ function flipbookHtml({
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>📖 ${safeNombre}</h1>
-    <div class="meta">
-      <div>Código: <span class="code">${safeCodigo}</span></div>
-      ${paidBadge}
+  <div id="reader">
+    <div class="header">
+      <h1>📖 ${safeNombre}</h1>
+      <div class="meta">
+        <div>Código: <span class="code">${safeCodigo}</span></div>
+        ${paidBadge}
+      </div>
     </div>
-  </div>
 
-  <div id="flipbook">
-    ${pagesHtml}
-  </div>
-
-  <div class="fs-controls" aria-hidden="true">
-    <div class="left">
-      <button class="fs-nav" id="fs-prev">◀</button>
-      <button class="fs-nav" id="fs-next">▶</button>
+    <div id="flipbook">
+      ${pagesHtml}
     </div>
-    <div class="right">
-      <button class="fs-nav fs-close" id="fs-close">✕</button>
+
+    <div class="fs-controls" aria-hidden="true">
+      <div class="left">
+        <button class="fs-nav" id="fs-prev">◀</button>
+        <button class="fs-nav" id="fs-next">▶</button>
+      </div>
+      <div class="right">
+        <button class="fs-nav fs-close" id="fs-close">✕</button>
+      </div>
     </div>
-  </div>
 
-  <div class="fs-hint" id="fs-hint">Usa ◀ ▶ o arrastra (también teclado)</div>
+    <div class="fs-hint" id="fs-hint">Usa ◀ ▶ o arrastra (también teclado)</div>
 
-  <div class="controls">
-    <button id="prev">◀ Anterior</button>
-    <span id="page-info">Página 1 de ${imageCount}</span>
-  <button id="fullscreen">⛶ Pantalla completa</button>
-    <button id="next">Siguiente ▶</button>
+    <div class="controls">
+      <button id="prev">◀ Anterior</button>
+      <span id="page-info">Página 1 de ${imageCount}</span>
+    <button id="fullscreen">⛶ Pantalla completa</button>
+      <button id="next">Siguiente ▶</button>
+    </div>
   </div>
 
   <script>
     $(function () {
       const imageCount = ${imageCount}; // 23 imágenes (0.jpg a 22.jpg)
+  const $reader = $('#reader');
       const $fb = $('#flipbook');
 
       // Deterministic sizing + UI state (avoid trial-and-error timing issues)
@@ -322,9 +335,13 @@ function flipbookHtml({
       };
 
       function sizeFromCss(){
-        const w = $fb.width();
-        const h = $fb.height();
-        return { w, h };
+        const el = $fb[0];
+        if (!el) return { w: 1, h: 1 };
+        const rect = el.getBoundingClientRect();
+        return {
+          w: rect.width || 1,
+          h: rect.height || 1,
+        };
       }
 
       const BOOK_ASPECT = ${BOOK_ASPECT};
@@ -374,12 +391,12 @@ function flipbookHtml({
         return { w: newW, h: newH };
       }
 
-      function applyTurnSize(w, h) {
+  function applyTurnSize(w, h) {
         // Turn.js can glitch if called with same size repeatedly; keep it simple.
         $fb.turn('size', w, h);
       }
 
-      function fitBook(reason) {
+  function fitBook(reason) {
         const mode = getMode();
         const box = getTargetBoxForMode(mode);
 
@@ -443,7 +460,7 @@ function flipbookHtml({
         }
       }
 
-      function requestFullscreen(el) {
+  function requestFullscreen(el) {
         if (el.requestFullscreen) return el.requestFullscreen();
         if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
         if (el.msRequestFullscreen) return el.msRequestFullscreen();
@@ -481,7 +498,7 @@ function flipbookHtml({
           }
 
           if (isFullscreen()) exitFullscreen();
-          else requestFullscreen($fb[0]);
+          else requestFullscreen($reader[0]);
         });
       }
 
