@@ -4,7 +4,7 @@ const fs = require('fs').promises;
 const path = require('path');
 
 const { PORT, MAIN_DOMAIN } = require('./src/config/constants');
-const { getRequestHost, parseSubdomainFromHost, safeJoin, sendHtml } = require('./src/utils/http');
+const { getRequestHost, parseSubdomainFromHost, safeJoin, sendHtml, sendJson } = require('./src/utils/http');
 const { handleCrearCuento } = require('./src/routes/api');
 const { serveFlipbook } = require('./src/routes/flipbook');
 const { landingHtml } = require('./src/views/landing');
@@ -56,6 +56,33 @@ const server = http.createServer(async (req, res) => {
   // API
   if (req.method === 'POST' && req.url === '/api/crear-cuento') {
     return handleCrearCuento(req, res);
+  }
+
+  // ====== Test Puppeteer ======
+  if (req.method === 'GET' && req.url === '/api/test-puppeteer') {
+    try {
+      const puppeteer = require('puppeteer');
+
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+
+      const page = await browser.newPage();
+      await page.setContent('<h1>Puppeteer funciona!</h1>');
+      await browser.close();
+
+      return sendJson(res, 200, {
+        success: true,
+        message: 'Puppeteer instalado correctamente',
+        version: puppeteer.version || 'unknown'
+      });
+    } catch (e) {
+      return sendJson(res, 500, {
+        success: false,
+        error: e.message
+      });
+    }
   }
 
   // Landing
