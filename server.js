@@ -751,8 +751,8 @@ const server = http.createServer(async (req, res) => {
 
       await page.setContent(html, { waitUntil: 'networkidle0' });
 
-      // Esperar un poco para que se renderice
-      await page.waitForTimeout(500);
+  // Esperar un poco para que se renderice
+  await new Promise(resolve => setTimeout(resolve, 500));
 
       // Capturar screenshot
       await page.screenshot({
