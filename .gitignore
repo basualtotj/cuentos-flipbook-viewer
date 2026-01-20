@@ -1,3 +1,6 @@
 node_modules/
 .env
 *.log
+
+# Local-only UX server (do not deploy)
+ux-server.js

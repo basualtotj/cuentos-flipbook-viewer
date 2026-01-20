@@ -530,9 +530,11 @@ const server = http.createServer(async (req, res) => {
   const isMainDomain = cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`;
 
   // API
-  if (req.method === 'POST' && req.url === '/api/crear-cuento') {
-    return handleCrearCuento(req, res);
-  }
+const { handleCrearCuento } = require('./src/routes/api');
+
+if (req.method === 'POST' && req.url === '/api/crear-cuento') {
+  return handleCrearCuento(req, res, sendJson);
+}
 
   // ====== Test Puppeteer ======
   if (req.method === 'GET' && req.url === '/api/test-puppeteer') {
