@@ -232,6 +232,260 @@ function serveLandingPage(req, res) {
     return sendHtml(res, 200, html);
   }
 
+  // ====== Página de prueba Puppeteer ======
+  if (req.url === '/test-puppeteer-page') {
+    const html = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Test Puppeteer - Generador de Plantillas</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-top: 15px;
+      font-weight: bold;
+      color: #555;
+    }
+    textarea {
+      width: 100%;
+      padding: 12px;
+      margin-top: 5px;
+      border: 2px solid #ddd;
+      border-radius: 5px;
+      font-size: 14px;
+      font-family: Georgia, serif;
+      box-sizing: border-box;
+      min-height: 120px;
+      line-height: 1.6;
+    }
+    button {
+      margin-top: 20px;
+      padding: 12px 30px;
+      background: #764ba2;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 16px;
+      cursor: pointer;
+      width: 100%;
+    }
+    button:hover {
+      background: #5f3a82;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    #result {
+      margin-top: 30px;
+      padding: 20px;
+      background: #f9f9f9;
+      border-radius: 5px;
+      display: none;
+    }
+    #result.show {
+      display: block;
+    }
+    #result.error {
+      background: #fee;
+      border-left: 4px solid #f44;
+    }
+    #result.success {
+      background: #efe;
+      border-left: 4px solid #4a4;
+    }
+    #result img {
+      max-width: 100%;
+      margin-top: 15px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      border: 1px solid #ddd;
+    }
+    .info {
+      background: #e8eaf6;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      color: #3f51b5;
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+    }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #764ba2;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .examples {
+      background: #fff3e0;
+      padding: 15px;
+      border-radius: 5px;
+      margin-top: 15px;
+      font-size: 13px;
+    }
+    .examples h4 {
+      margin: 0 0 10px;
+      color: #e65100;
+    }
+    .examples p {
+      margin: 5px 0;
+      cursor: pointer;
+      color: #666;
+    }
+    .examples p:hover {
+      color: #764ba2;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📄 Test Puppeteer - Generador de Plantillas</h1>
+    
+    <div class="info">
+      <strong>ℹ️ Prueba de concepto:</strong> Este endpoint genera una plantilla de texto usando Puppeteer.
+      Convierte HTML a JPG en ~1-2 segundos.
+    </div>
+
+    <form id="form">
+      <label>Texto para la plantilla:</label>
+      <textarea 
+        id="texto" 
+        placeholder="Escribe el texto que quieres ver en la plantilla..."
+      >Érase una vez, en un reino muy lejano, vivía una niña llamada Ana que soñaba con volar entre las nubes y tocar las estrellas con sus manos.</textarea>
+
+      <div class="examples">
+        <h4>💡 Ejemplos de texto (click para usar):</h4>
+        <p onclick="setText(this.textContent)">En un bosque encantado, donde los árboles susurraban secretos antiguos, vivía un pequeño conejo llamado Tito que guardaba un gran secreto.</p>
+        <p onclick="setText(this.textContent)">Bajo el mar, en un palacio de coral y perlas, la sirena Marina descubrió que podía hablar con todos los peces del océano.</p>
+        <p onclick="setText(this.textContent)">La luna brillaba con fuerza aquella noche, mientras el pequeño búho Nico volaba por primera vez fuera de su nido.</p>
+      </div>
+
+      <button type="submit" id="btn">🎨 Generar Plantilla con Puppeteer</button>
+    </form>
+
+    <div id="result"></div>
+  </div>
+
+  <script>
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    const form = document.getElementById('form');
+    const btn = document.getElementById('btn');
+    const result = document.getElementById('result');
+    const textoInput = document.getElementById('texto');
+
+    function setText(text) {
+      textoInput.value = text;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const texto = textoInput.value.trim();
+      if (!texto) {
+        showResult('error', 'Por favor ingresa un texto');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '⏳ Generando plantilla...';
+      
+      result.className = 'show';
+      result.innerHTML =
+        '<div class="loading">' +
+          '<div class="spinner"></div>' +
+          '<p>Generando plantilla con Puppeteer...<br>Esto toma 1-2 segundos</p>' +
+        '</div>';
+
+      try {
+        const startTime = Date.now();
+        
+        const response = await fetch('/api/test-puppeteer-template', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'texto=' + encodeURIComponent(texto)
+        });
+
+        const data = await response.json();
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+        if (data.success) {
+          const t = String(data.texto_usado || '');
+          showResult('success',
+            '<h3>✅ Plantilla generada exitosamente</h3>' +
+            '<p><strong>Tiempo:</strong> ' + elapsed + ' segundos</p>' +
+            '<p><strong>Dimensiones:</strong> ' + esc(data.dimensions || '') + '</p>' +
+            '<p><strong>Texto usado:</strong> ' + esc(t.substring(0, 100)) + (t.length > 100 ? '...' : '') + '</p>' +
+            '<img src="' + String(data.image_data || '') + '" alt="Plantilla generada" />' +
+            '<p style="margin-top:15px; font-size:12px; color:#666;">' +
+              'Imagen guardada en: ' + esc(data.image_path || '') +
+            '</p>'
+          );
+        } else {
+          showResult('error',
+            '<h3>❌ Error al generar plantilla</h3>' +
+            '<p><strong>Error:</strong> ' + esc(data.error || '') + '</p>' +
+            '<pre style="background:#f5f5f5;padding:10px;border-radius:5px;overflow:auto;font-size:11px;">' + esc(data.stack || '') + '</pre>'
+          );
+        }
+      } catch (err) {
+        showResult('error',
+          '<h3>❌ Error de conexión</h3>' +
+          '<p>' + esc((err && err.message) ? err.message : err) + '</p>'
+        );
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🎨 Generar Plantilla con Puppeteer';
+      }
+    });
+
+    function showResult(type, html) {
+      result.className = 'show ' + type;
+      result.innerHTML = html;
+    }
+  </script>
+</body>
+</html>`;
+
+    return sendHtml(res, 200, html);
+  }
+
   return sendHtml(res, 200, landingHtml);
 }
 
