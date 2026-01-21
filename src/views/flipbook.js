@@ -10,360 +10,10 @@ function flipbookHtml({
 }) {
   const html = `<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>${safeNombre}</title>
 
-  <link rel="stylesheet" href="/css/tw.css" />
+  flipbookHtml,
+};
 
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
-
-  <style>
-    :root{
-      --maxw: 1200px;
-
-      /* Match landing palette */
-      --bg: #fff;
-      --text: #1c1b22;
-      --muted: rgba(28,27,34,.72);
-      --card: rgba(255,255,255,.92);
-      --border: rgba(31, 33, 39, .10);
-      --shadow: 0 18px 60px rgba(17, 24, 39, .12);
-      --shadow-soft: 0 10px 26px rgba(17, 24, 39, .08);
-      --r-xl: 26px;
-      --r-lg: 18px;
-      --r-md: 14px;
-      --r-sm: 12px;
-
-      /* palette (kids friendly) */
-      --p1: #E88B7B; /* coral */
-      --p2: #D4C5E8; /* lavender */
-      --p3: #A8D5BA; /* mint */
-      --p4: #BCE3F5; /* sky */
-      --p5: #FFD4B8; /* peach */
-      --p6: #F5C8D8; /* pink */
-
-      --focus: 0 0 0 4px rgba(232, 139, 123, .22);
-    }
-    body{
-      margin:0;
-      padding:18px 14px 26px;
-      color: var(--text);
-      background:
-        radial-gradient(900px 600px at 15% 10%, rgba(212,197,232,.30), transparent 70%),
-        radial-gradient(900px 600px at 85% 15%, rgba(168,213,186,.25), transparent 70%),
-        radial-gradient(900px 700px at 55% 90%, rgba(255,212,184,.22), transparent 70%),
-        linear-gradient(180deg, #fff 0%, #fff9f5 100%);
-      font-family: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      gap:14px;
-    }
-
-  html, body{ height: 100%; max-width:100%; overflow-x:hidden; }
-    .header{
-      width:min(96vw, var(--maxw));
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--r-xl);
-      box-shadow: var(--shadow-soft);
-      padding: 14px 16px;
-      box-sizing: border-box;
-      min-width:0;
-    }
-    .header h1{ margin:0 0 6px; font-size: 22px; }
-    .meta{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; color:var(--muted); }
-    .code{ color: var(--text); font-weight:900; }
-    .badge{ padding:6px 10px; border-radius:999px; font-size:13px; font-weight:700; }
-    .badge.ok{ background: rgba(34,197,94,.18); color:#4ade80; }
-    .badge.warn{ background: rgba(251,191,36,.18); color:#fbbf24; }
-
-    #flipbook{
-      width: min(96vw, var(--maxw));
-      aspect-ratio: ${BOOK_ASPECT};
-      height: auto;
-      margin: 6px 0;
-  box-shadow: 0 18px 60px rgba(17,24,39,.22);
-  border-radius: var(--r-lg);
-      overflow: hidden;
-  background: rgba(17,17,17,0.96);
-    }
-
-    #flipbook .page{
-      background:#111;
-      height: 100%;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-    }
-
-    #flipbook .page img{
-      width:100%;
-      height:100%;
-      display:block;
-      object-fit: cover;
-      background:#111;
-    }
-
-    /* In immersive/fullscreen we prefer to avoid cropping the content */
-    body.fullscreen #flipbook .page img,
-    body.ios-fullscreen #flipbook .page img{
-      object-fit: contain;
-    }
-
-    .controls{
-      width:min(96vw, var(--maxw));
-      display:flex;
-      justify-content:center;
-      align-items:center;
-      gap:14px;
-    }
-
-  /* Fullscreen helper UI (when it's not intuitive to drag page corners) */
-  .fs-controls{ display:none; }
-  .fs-hint{ display:none; }
-  body.fullscreen .fs-controls,
-  body.ios-fullscreen .fs-controls{ display:flex; }
-  body.fullscreen .fs-hint,
-  body.ios-fullscreen .fs-hint{ display:block; }
-
-    .fs-controls{
-      position: fixed;
-      left: 12px;
-      right: 12px;
-      top: 12px;
-      z-index: 10001;
-      justify-content: space-between;
-      gap: 10px;
-      pointer-events: none;
-    }
-  .fs-controls .left,
-  .fs-controls .right{
-      display:flex;
-      gap:10px;
-      pointer-events: auto;
-    }
-
-  body.fullscreen .fs-controls{ pointer-events: auto; }
-
-  /* Important: override generic places where 'button' might be hidden/blocked */
-  .fs-controls button{ display:inline-flex; align-items:center; justify-content:center; }
-
-    .fs-hint{
-      position: fixed;
-      left: 50%;
-      bottom: 72px;
-      transform: translateX(-50%);
-      z-index: 10001;
-      font-size: 13px;
-      color: rgba(255,255,255,0.9);
-      background: rgba(0,0,0,0.55);
-      padding: 8px 10px;
-      border-radius: 999px;
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-      user-select: none;
-      opacity: 0;
-      transition: opacity 180ms ease;
-    }
-
-  /* Fullscreen styles */
-  #reader:fullscreen{
-      width: 100vw;
-      height: 100vh;
-      background: #000;
-      margin: 0;
-      border-radius: 0;
-    }
-  #reader:-webkit-full-screen{
-      width: 100vw;
-      height: 100vh;
-      background: #000;
-      margin: 0;
-      border-radius: 0;
-    }
-  #reader:-ms-fullscreen{
-      width: 100vw;
-      height: 100vh;
-      background: #000;
-      margin: 0;
-      border-radius: 0;
-    }
-
-    /* Fullscreen should give Turn.js a stable box, then JS will size the book. */
-    body.fullscreen{ padding:0; }
-    body.fullscreen #flipbook{
-      position: fixed;
-      inset: 0;
-      width: 100vw;
-      height: 100vh;
-      aspect-ratio: auto;
-      margin: 0;
-      border-radius: 0;
-      box-shadow: none;
-      background: #000;
-    }
-
-    body.fullscreen .controls{
-      position: fixed;
-      left: 50%;
-      bottom: 20px;
-      transform: translateX(-50%);
-      width: auto;
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: rgba(0,0,0,0.7);
-      z-index: 9999;
-    }
-
-    /* In fullscreen, keep bottom controls visible and compact */
-    body.fullscreen .controls,
-    body.ios-fullscreen .controls{
-      gap: 10px;
-    }
-
-  /* iOS fallback (Safari iOS doesn't support Fullscreen API on arbitrary elements) */
-  body.ios-fullscreen{ overflow: hidden; background:#000; }
-    body.ios-fullscreen .header{ display:none; }
-    body.ios-fullscreen #flipbook{
-      position: fixed;
-      inset: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 9999;
-      background: #000;
-      margin: 0;
-      border-radius: 0;
-      aspect-ratio: auto;
-    }
-    body.ios-fullscreen .controls{
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 10000;
-      background: rgba(0,0,0,0.8);
-      padding: 8px 10px;
-      border-radius: 18px;
-      width: auto;
-    }
-
-    body.ios-fullscreen button{
-      padding: 8px 10px;
-      font-size: 13px;
-    }
-    body.ios-fullscreen #page-info{
-      font-size: 12px;
-    }
-    button{
-      padding: 10px 14px;
-      border:0;
-      border-radius:10px;
-  background: linear-gradient(90deg, var(--p1), var(--p2));
-      color:#fff;
-      font-size:15px;
-      cursor:pointer;
-    }
-    button:disabled{ opacity:.45; cursor:not-allowed; }
-    #page-info{ color: var(--muted); font-size: 14px; }
-
-    @media (max-width: 520px){
-      .header h1{ font-size:18px; }
-      button{ padding: 9px 12px; font-size:14px; }
-    }
-
-    .fs-nav{
-      padding: 12px 14px;
-      font-size: 14px;
-      border-radius: 12px;
-      background: rgba(102,126,234,0.95);
-    }
-    .fs-close{
-      background: rgba(255,255,255,0.16);
-      color:#fff;
-    }
-
-    /* Ensure fullscreen overlay controls are prominent on desktop fullscreen */
-    body.fullscreen .fs-controls{
-      top: auto;
-      bottom: 18px;
-      left: 50%;
-      right: auto;
-      transform: translateX(-50%);
-      width: auto;
-      background: rgba(0,0,0,0.65);
-      padding: 10px 12px;
-      border-radius: 16px;
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-    }
-    body.fullscreen .fs-controls .left,
-    body.fullscreen .fs-controls .right{ gap: 12px; }
-    body.fullscreen .fs-nav{ padding: 14px 16px; font-size: 16px; }
-  </style>
-</head>
-<body>
-  <div id="reader">
-      background: linear-gradient(90deg, var(--p1), var(--p2));
-      <h1>📖 ${safeNombre}</h1>
-      <div class="meta">
-        <div>Código: <span class="code">${safeCodigo}</span></div>
-        ${paidBadge}
-      </div>
-
-    /* Hide the flipbook until the story is ready */
-    body.is-loading #flipbook,
-    body.is-loading .controls,
-    body.is-loading .fs-controls,
-    body.is-loading .fs-hint{
-      visibility: hidden;
-    }
-
-    /* ===== Status Modal Overlay ===== */
-    #status-overlay{
-      position: fixed;
-      inset: 0;
-      z-index: 20000;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 18px 14px;
-      min-width: 0;
-    }
-    #status-overlay[data-open="true"]{ display:flex; }
-
-    #status-overlay .backdrop{
-      position:absolute;
-      inset:0;
-      background: rgba(255,255,255,0.55);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-    }
-
-    #status-overlay .card{
-      position: relative;
-      width: min(96vw, 960px);
-      min-width: 0;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--r-xl);
-      box-shadow: var(--shadow);
-      padding: 18px;
-      overflow: hidden;
-    }
-
-    #status-overlay h2{ margin:0; font-size: 24px; letter-spacing:-0.02em; }
-    #status-overlay .sub{ margin-top:6px; color: var(--muted); font-weight: 900; }
-
-    #status-overlay .bar{
-      margin-top: 14px;
-      width: 100%;
-      height: 12px;
-      border-radius: 999px;
-      background: rgba(31,33,39,.08);
       overflow:hidden;
       border: 1px solid rgba(31,33,39,.08);
     }
@@ -416,9 +66,9 @@ function flipbookHtml({
       #status-overlay .kv{ grid-template-columns: 1fr; gap: 6px; }
       #status-overlay .btn{ width: 100%; }
     }
-    </div>
-
-    <div id="flipbook">
+  </style>
+</head>
+<body>
   <div id="status-overlay" data-open="false" aria-live="polite" aria-modal="true" role="dialog">
     <div class="backdrop" aria-hidden="true"></div>
     <div class="card">
@@ -446,14 +96,24 @@ function flipbookHtml({
     </div>
   </div>
 
+  <div id="reader">
+    <div class="header">
+      <h1>📖 ${safeNombre}</h1>
+      <div class="meta">
+        <div>Código: <span class="code">${safeCodigo}</span></div>
+        <!-- Intentionally hidden: do not show payment technical states to end users -->
+      </div>
+    </div>
+
+    <div id="flipbook">
       ${pagesHtml}
     </div>
 
     <div class="fs-controls" aria-hidden="true">
       <div class="left">
         <button class="fs-nav" id="fs-prev">◀</button>
-
-        <!-- Intentionally hidden: do not show payment technical states to end users -->
+        <button class="fs-nav" id="fs-next">▶</button>
+      </div>
       <div class="right">
         <button class="fs-nav fs-close" id="fs-close">✕</button>
       </div>

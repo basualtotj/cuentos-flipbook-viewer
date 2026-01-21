@@ -1,0 +1,27 @@
+<!-- Injected into flipbook viewer: status modal overlay -->
+<div id="status-overlay" data-open="false" aria-live="polite" aria-modal="true" role="dialog">
+  <div class="backdrop" aria-hidden="true"></div>
+  <div class="card">
+    <h2>Generando tu cuento...</h2>
+    <div class="sub">Puedes esperar aquí o revisar tu correo en ~10 min.</div>
+
+    <div class="bar" aria-label="Progreso">
+      <div id="status-bar"></div>
+    </div>
+
+    <div class="kvs">
+      <div class="kv"><div class="k">Paso</div><div id="status-step" class="v">—</div></div>
+      <div class="kv"><div class="k">Progreso</div><div id="status-progress" class="v">0%</div></div>
+      <div class="kv"><div class="k">Detalle</div><div id="status-message" class="v muted">Esperando estado…</div></div>
+    </div>
+
+    <div class="actions">
+      <a id="status-open" class="btn" href="/" aria-disabled="true" style="pointer-events:none;">📖 Abrir cuento</a>
+      <a class="btn secondary" href="https://cuentosparasiempre.com" target="_blank" rel="noopener noreferrer">Crear otro cuento</a>
+    </div>
+
+    <div id="status-error" class="cta" style="display:none;">
+      Hubo un problema generando tu cuento. <a href="mailto:hola@cuentosparasiempre.com">Escríbenos</a>.
+    </div>
+  </div>
+</div>
