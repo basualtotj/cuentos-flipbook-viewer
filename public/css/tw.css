@@ -3,8 +3,14 @@
 .visible {
   visibility: visible;
 }
+.sticky {
+  position: sticky;
+}
 .container {
   width: 100%;
+}
+.block {
+  display: block;
 }
 .flex {
   display: flex;

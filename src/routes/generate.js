@@ -12,12 +12,11 @@ const fs = require('fs').promises;
 const path = require('path');
 
 async function handleGenerateCuento(req, res, sendJson) {
-  const startTime = Date.now();
-  
   try {
     const body = await readBody(req);
     const params = new URLSearchParams(body);
     const cuentoId = params.get('cuento_id');
+    const callbackUrl = params.get('callback_url'); // URL de n8n para notificar cuando termine
 
     if (!cuentoId) {
       return sendJson(res, 400, {
@@ -26,9 +25,9 @@ async function handleGenerateCuento(req, res, sendJson) {
       });
     }
 
-    console.log(`🎨 Iniciando generación de cuento ID: ${cuentoId}`);
+    console.log(`🎨 Recibida solicitud de generación para cuento ID: ${cuentoId}`);
 
-    // 1. Obtener datos del cuento desde BD
+    // Verificar que el cuento existe y está pagado
     const [rows] = await pool.execute(
       'SELECT id, subdomain, payload_json, estado FROM cuentos WHERE id = ? LIMIT 1',
       [cuentoId]
@@ -50,55 +49,94 @@ async function handleGenerateCuento(req, res, sendJson) {
       });
     }
 
+    // Actualizar estado a "generando"
+    await pool.execute(
+      'UPDATE cuentos SET estado = ? WHERE id = ?',
+      ['generando', cuentoId]
+    );
+
+    // CRÍTICO: Iniciar generación en background (no esperar)
+    setImmediate(() => {
+      generateCuentoBackground(cuentoId, cuento, callbackUrl);
+    });
+
+    // Responder INMEDIATAMENTE (antes de que termine la generación)
+    console.log(`✅ Generación iniciada en background para cuento ${cuentoId}`);
+    
+    return sendJson(res, 202, { // 202 Accepted
+      success: true,
+      message: 'Generación iniciada en background',
+      cuento_id: parseInt(cuentoId),
+      status: 'processing',
+      estimated_time_minutes: 5,
+      callback_url: callbackUrl || null
+    });
+
+  } catch (err) {
+    console.error('❌ Error iniciando generación:', err);
+    return sendJson(res, 500, {
+      success: false,
+      error: err.message
+    });
+  }
+}
+
+// Función que trabaja en background (asíncrona)
+async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
+  const startTime = Date.now();
+  
+  try {
+    console.log(`🎨 [BACKGROUND] Iniciando generación de cuento ID: ${cuentoId}`);
+
     const payload = JSON.parse(cuento.payload_json);
     const subdomain = cuento.subdomain;
 
-    console.log(`📝 Generando historia para: ${payload.nombre_nino}`);
+    console.log(`📝 [BACKGROUND] Generando historia para: ${payload.nombre_nino}`);
 
-    // 2. Generar historia con Claude
+    // 1. Generar historia con Claude
     const story = await generateStory(payload);
     
-    console.log(`✅ Historia generada: "${story.titulo}"`);
-    console.log(`🖼️  Generando ${story.escenas.length} ilustraciones...`);
+    console.log(`✅ [BACKGROUND] Historia generada: "${story.titulo}"`);
+    console.log(`🖼️  [BACKGROUND] Generando ${story.escenas.length} ilustraciones...`);
 
-    // 3. Crear carpeta para el flipbook
+    // 2. Crear carpeta para el flipbook
     const flipbookPath = path.join(FLIPBOOKS_DIR, subdomain);
     await fs.mkdir(flipbookPath, { recursive: true });
 
-    // 4. Generar portada (0.jpg y 1.jpg - duplicada)
+    // 3. Generar portada (0.jpg y 1.jpg - duplicada)
     await renderPortada(payload.nombre_nino, story.titulo, path.join(flipbookPath, '0.jpg'));
     await renderPortada(payload.nombre_nino, story.titulo, path.join(flipbookPath, '1.jpg'));
-    console.log('✅ Portada generada');
+    console.log('✅ [BACKGROUND] Portada generada');
 
-    // 5. Generar dedicatoria (2.jpg)
+    // 4. Generar dedicatoria (2.jpg)
     await renderDedicatoria(story.dedicatoria, path.join(flipbookPath, '2.jpg'));
-    console.log('✅ Dedicatoria generada');
+    console.log('✅ [BACKGROUND] Dedicatoria generada');
 
-    // 6. Generar escenas (ilustraciones + textos alternados)
+    // 5. Generar escenas (ilustraciones + textos alternados)
     for (let i = 0; i < story.escenas.length; i++) {
       const escena = story.escenas[i];
       const ilustracionNum = i * 2 + 3; // 3, 5, 7, 9...
       const textoNum = i * 2 + 4;       // 4, 6, 8, 10...
 
-      console.log(`🎨 Generando ilustración ${i + 1}/10...`);
+      console.log(`🎨 [BACKGROUND] Generando ilustración ${i + 1}/10...`);
       
       // Generar ilustración con FLUX
       const imageUrl = await generateImage(escena.prompt_imagen);
       const imageBuffer = await downloadImage(imageUrl);
       await fs.writeFile(path.join(flipbookPath, `${ilustracionNum}.jpg`), imageBuffer);
       
-      console.log(`✅ Ilustración ${i + 1} guardada (${ilustracionNum}.jpg)`);
+      console.log(`✅ [BACKGROUND] Ilustración ${i + 1} guardada (${ilustracionNum}.jpg)`);
 
       // Generar página de texto con Puppeteer
       await renderTextPage(escena.texto_narrativo, path.join(flipbookPath, `${textoNum}.jpg`));
-      console.log(`✅ Texto ${i + 1} generado (${textoNum}.jpg)`);
+      console.log(`✅ [BACKGROUND] Texto ${i + 1} generado (${textoNum}.jpg)`);
     }
 
-    // 7. Generar contraportada (22.jpg)
+    // 6. Generar contraportada (22.jpg)
     await renderContraportada(story.mensaje_final, path.join(flipbookPath, '22.jpg'));
-    console.log('✅ Contraportada generada');
+    console.log('✅ [BACKGROUND] Contraportada generada');
 
-    // 8. Actualizar BD
+    // 7. Actualizar BD
     await pool.execute(
       `UPDATE cuentos 
        SET 
@@ -111,40 +149,74 @@ async function handleGenerateCuento(req, res, sendJson) {
 
     const timeTaken = ((Date.now() - startTime) / 1000).toFixed(1);
     
-    console.log(`🎉 Cuento generado exitosamente en ${timeTaken}s`);
+    console.log(`🎉 [BACKGROUND] Cuento ${cuentoId} generado exitosamente en ${timeTaken}s`);
 
-    return sendJson(res, 200, {
-      success: true,
-      cuento_id: parseInt(cuentoId),
-      subdomain: subdomain,
-      flipbook_path: subdomain,
-      images_generated: 23,
-      time_taken_seconds: parseFloat(timeTaken),
-      story_title: story.titulo
-    });
+    // 8. Notificar a n8n vía callback (si existe)
+    if (callbackUrl) {
+      console.log(`📞 [BACKGROUND] Llamando callback: ${callbackUrl}`);
+      
+      try {
+        const callbackResponse = await fetch(callbackUrl, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'User-Agent': 'Cuentos-Background-Worker/1.0'
+          },
+          body: JSON.stringify({
+            success: true,
+            cuento_id: parseInt(cuentoId),
+            subdomain: subdomain,
+            flipbook_path: subdomain,
+            images_generated: 23,
+            time_taken_seconds: parseFloat(timeTaken),
+            story_title: story.titulo,
+            completed_at: new Date().toISOString()
+          })
+        });
+
+        if (callbackResponse.ok) {
+          console.log(`✅ [BACKGROUND] Callback exitoso`);
+        } else {
+          console.warn(`⚠️  [BACKGROUND] Callback falló: ${callbackResponse.status}`);
+        }
+      } catch (callbackErr) {
+        console.error(`❌ [BACKGROUND] Error en callback:`, callbackErr.message);
+      }
+    }
 
   } catch (err) {
-    console.error('❌ Error generando cuento:', err);
+    console.error('❌ [BACKGROUND] Error generando cuento:', err);
     
     // Actualizar BD con error
     try {
-      const body = await readBody(req);
-      const params = new URLSearchParams(body);
-      const cuentoId = params.get('cuento_id');
-      
-      if (cuentoId) {
-        await pool.execute(
-          `UPDATE cuentos SET estado = 'error' WHERE id = ?`,
-          [cuentoId]
-        );
-      }
-    } catch {}
+      await pool.execute(
+        'UPDATE cuentos SET estado = ? WHERE id = ?',
+        ['error', cuentoId]
+      );
+    } catch (dbErr) {
+      console.error('❌ [BACKGROUND] Error actualizando BD:', dbErr);
+    }
 
-    return sendJson(res, 500, {
-      success: false,
-      error: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-    });
+    // Notificar error vía callback
+    if (callbackUrl) {
+      try {
+        await fetch(callbackUrl, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'User-Agent': 'Cuentos-Background-Worker/1.0'
+          },
+          body: JSON.stringify({
+            success: false,
+            cuento_id: parseInt(cuentoId),
+            error: err.message,
+            failed_at: new Date().toISOString()
+          })
+        });
+      } catch (callbackErr) {
+        console.error('❌ [BACKGROUND] Error notificando error:', callbackErr);
+      }
+    }
   }
 }
 

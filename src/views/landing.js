@@ -87,6 +87,9 @@ const landingHtml = `<!doctype html>
             overflow: hidden;
           }
 
+          /* Anchor offset so sticky header doesn't cover section titles */
+          :target{ scroll-margin-top: 86px; }
+
           /* Evita “texto suelto” / nodos inesperados visibles dentro del header */
           .header > .container{ line-height: 1; }
           .nav{ line-height: 1; }
