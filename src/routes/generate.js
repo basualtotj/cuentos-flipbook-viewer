@@ -308,28 +308,32 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
       console.log(`📞 [BACKGROUND] Llamando callback: ${callbackUrl}`);
       
       try {
+        const callbackPayload = {
+          success: true,
+          cuento_id: parseInt(cuentoId),
+          subdomain: subdomain,
+          flipbook_path: subdomain,
+          images_generated: 23,
+          time_taken_seconds: parseFloat(timeTaken),
+          story_title: story.titulo,
+          completed_at: new Date().toISOString()
+        };
+
         const callbackResponse = await fetch(callbackUrl, {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'User-Agent': 'Cuentos-Background-Worker/1.0'
           },
-          body: JSON.stringify({
-            success: true,
-            cuento_id: parseInt(cuentoId),
-            subdomain: subdomain,
-            flipbook_path: subdomain,
-            images_generated: 23,
-            time_taken_seconds: parseFloat(timeTaken),
-            story_title: story.titulo,
-            completed_at: new Date().toISOString()
-          })
+          body: JSON.stringify(callbackPayload)
         });
 
+        const raw = await callbackResponse.text().catch(() => '');
         if (callbackResponse.ok) {
-          console.log(`✅ [BACKGROUND] Callback exitoso`);
+          console.log('✅ [BACKGROUND] Callback OK');
         } else {
-          console.warn(`⚠️  [BACKGROUND] Callback falló: ${callbackResponse.status}`);
+          console.warn(`⚠️ [BACKGROUND] Callback falló: ${callbackResponse.status} ${callbackResponse.statusText}`);
+          console.warn(`⚠️ [BACKGROUND] Callback body: ${String(raw || '').slice(0, 400)}`);
         }
       } catch (callbackErr) {
         console.error(`❌ [BACKGROUND] Error en callback:`, callbackErr.message);
@@ -345,21 +349,31 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
     // Notificar error vía callback
     if (callbackUrl) {
       try {
-        await fetch(callbackUrl, {
+        const callbackPayload = {
+          success: false,
+          cuento_id: parseInt(cuentoId),
+          error: err.message,
+          failed_at: new Date().toISOString()
+        };
+
+        const callbackResponse = await fetch(callbackUrl, {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
             'User-Agent': 'Cuentos-Background-Worker/1.0'
           },
-          body: JSON.stringify({
-            success: false,
-            cuento_id: parseInt(cuentoId),
-            error: err.message,
-            failed_at: new Date().toISOString()
-          })
+          body: JSON.stringify(callbackPayload)
         });
+
+        const raw = await callbackResponse.text().catch(() => '');
+        if (callbackResponse.ok) {
+          console.log('✅ [BACKGROUND] Callback OK');
+        } else {
+          console.warn(`⚠️ [BACKGROUND] Callback falló: ${callbackResponse.status} ${callbackResponse.statusText}`);
+          console.warn(`⚠️ [BACKGROUND] Callback body: ${String(raw || '').slice(0, 400)}`);
+        }
       } catch (callbackErr) {
-        console.error('❌ [BACKGROUND] Error notificando error:', callbackErr);
+        console.error('❌ [BACKGROUND] Error notificando error:', callbackErr.message);
       }
     }
   }
