@@ -363,14 +363,17 @@ const landingHtml = `<!doctype html>
             padding: 1px;
           }
 
-          /* “Fondo de atrás” ampliado: extiende el card hacia los lados sin crecer el contenido */
+          /* “Burbujas contenedoras” (fondo de atrás) ampliadas, pero centradas:
+             evita que se vea más espacio a la izquierda y desborde hacia la derecha. */
           .form-wrap:before{
             content: '';
             position: absolute;
             top: 0;
             bottom: 0;
-            left: -18px;
-            right: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: calc(100% + 44px);
+            max-width: calc(100vw - 40px);
             border-radius: var(--r-xl);
             background: rgba(255,255,255,.92);
             border: 1px solid rgba(31,33,39,.10);
@@ -395,11 +398,28 @@ const landingHtml = `<!doctype html>
           form#form{ padding: 18px; }
 
           /* 2-column layout (desktop) / 1-column (mobile) */
-          /* Reference-like spacing: wider center gutter + slightly slimmer right column */
-          .form-layout{ display:grid; grid-template-columns: 1.4fr .9fr; gap: 22px; align-items:start; }
+          /* 2 columns: allow shrinking without overflow (critical: minmax(0, ...)) */
+          .form-layout{ display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items:start; }
           .form-col{ display:grid; gap: 16px; }
           .form-col-main{ min-width: 0; }
           .form-col-side{ min-width: 0; }
+
+          /* Grid items (cards) must be allowed to shrink */
+          .form-card{
+            min-width: 0;
+            max-width: 100%;
+          }
+
+          /* Common overflow culprits inside the right column */
+          .color-picker,
+          .icon-selector,
+          .field-row{
+            min-width: 0;
+            max-width: 100%;
+          }
+
+          /* Prevent auto-fit minimums from forcing a column wider than its container */
+          .icon-selector{ grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
 
           @media (max-width: 980px){
             .form-layout{ grid-template-columns: 1fr; }

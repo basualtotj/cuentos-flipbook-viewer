@@ -1,9 +1,28 @@
-// src/config/constants.js
-
-const PORT = process.env.PORT || 3000;
-const MAIN_DOMAIN = process.env.MAIN_DOMAIN || 'cuentosparasiempre.com';
-
 module.exports = {
-  PORT,
-  MAIN_DOMAIN,
+  PORT: process.env.PORT || 3000,
+  MAIN_DOMAIN: process.env.MAIN_DOMAIN || 'cuentosparasiempre.com',
+  
+  // APIs
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+  REPLICATE_API_TOKEN: process.env.REPLICATE_API_TOKEN,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  
+  // Replicate models
+  FLUX_MODEL: 'black-forest-labs/flux-schnell',
+  
+  // Claude models
+  CLAUDE_MODEL: 'claude-3-5-sonnet-20241022',
+  
+  // Dimensiones
+  IMAGE_WIDTH: 1920,
+  IMAGE_HEIGHT: 1360,
+  
+  // Paths
+  FLIPBOOKS_DIR: 'public/flipbooks',
+  TEMP_DIR: 'tmp',
+  
+  // Cuento config
+  TOTAL_PAGES: 23,
+  ILLUSTRATION_COUNT: 10,
+  TEXT_PAGE_COUNT: 13
 };

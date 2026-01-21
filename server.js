@@ -6,6 +6,7 @@ const path = require('path');
 const { PORT, MAIN_DOMAIN } = require('./src/config/constants');
 const { getRequestHost, parseSubdomainFromHost, safeJoin, sendHtml, sendJson, readBody, escapeHtml } = require('./src/utils/http');
 const { handleCrearCuento } = require('./src/routes/api');
+const { handleGenerateCuento } = require('./src/routes/generate');
 const { serveFlipbook } = require('./src/routes/flipbook');
 const { landingHtml } = require('./src/views/landing');
 
@@ -530,11 +531,15 @@ const server = http.createServer(async (req, res) => {
   const isMainDomain = cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`;
 
   // API
-const { handleCrearCuento } = require('./src/routes/api');
+  // POST /api/crear-cuento
+  if (req.method === 'POST' && req.url === '/api/crear-cuento') {
+    return handleCrearCuento(req, res, sendJson);
+  }
 
-if (req.method === 'POST' && req.url === '/api/crear-cuento') {
-  return handleCrearCuento(req, res, sendJson);
-}
+  // POST /api/generate-cuento
+  if (req.method === 'POST' && req.url === '/api/generate-cuento') {
+    return handleGenerateCuento(req, res, sendJson);
+  }
 
   // ====== Test Puppeteer ======
   if (req.method === 'GET' && req.url === '/api/test-puppeteer') {
