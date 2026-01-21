@@ -303,11 +303,23 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
     
     console.log(`🎉 [BACKGROUND] Cuento ${cuentoId} generado exitosamente en ${timeTaken}s`);
 
-    // 8. Notificar a n8n vía callback (si existe)
+    // 8. Notificar vía callback (best-effort)
+    // Nota: el workflow puede no usar callback_url. Esto jamás debe romper la generación.
     if (callbackUrl) {
-      console.log(`📞 [BACKGROUND] Llamando callback: ${callbackUrl}`);
-      
+      let parsed = null;
       try {
+        parsed = new URL(String(callbackUrl));
+      } catch {
+        parsed = null;
+      }
+
+      const isHttp = parsed && (parsed.protocol === 'http:' || parsed.protocol === 'https:');
+      if (!isHttp) {
+        console.warn(`⚠️ [BACKGROUND] Callback ignorado (URL inválida o no http/https): ${String(callbackUrl)}`);
+      } else {
+        console.log(`📞 [BACKGROUND] Llamando callback: ${parsed.toString()}`);
+
+        try {
         const callbackPayload = {
           success: true,
           cuento_id: parseInt(cuentoId),
@@ -319,7 +331,7 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
           completed_at: new Date().toISOString()
         };
 
-        const callbackResponse = await fetch(callbackUrl, {
+        const callbackResponse = await fetch(parsed.toString(), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -331,12 +343,16 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
         const raw = await callbackResponse.text().catch(() => '');
         if (callbackResponse.ok) {
           console.log('✅ [BACKGROUND] Callback OK');
+        } else if (callbackResponse.status === 409) {
+          console.warn(`⚠️ [BACKGROUND] Callback 409 (ignorado): ${callbackResponse.status} ${callbackResponse.statusText}`);
+          if (raw) console.warn(`⚠️ [BACKGROUND] Callback body: ${String(raw).slice(0, 400)}`);
         } else {
           console.warn(`⚠️ [BACKGROUND] Callback falló: ${callbackResponse.status} ${callbackResponse.statusText}`);
           console.warn(`⚠️ [BACKGROUND] Callback body: ${String(raw || '').slice(0, 400)}`);
         }
-      } catch (callbackErr) {
-        console.error(`❌ [BACKGROUND] Error en callback:`, callbackErr.message);
+        } catch (callbackErr) {
+          console.error(`❌ [BACKGROUND] Error en callback:`, callbackErr.message);
+        }
       }
     }
 
@@ -346,9 +362,20 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
   // Actualizar BD con error + progreso_json/error_message
   await markError(cuentoId, err && err.message ? err.message : String(err));
 
-    // Notificar error vía callback
+    // Notificar error vía callback (best-effort)
     if (callbackUrl) {
+      let parsed = null;
       try {
+        parsed = new URL(String(callbackUrl));
+      } catch {
+        parsed = null;
+      }
+
+      const isHttp = parsed && (parsed.protocol === 'http:' || parsed.protocol === 'https:');
+      if (!isHttp) {
+        console.warn(`⚠️ [BACKGROUND] Callback de error ignorado (URL inválida o no http/https): ${String(callbackUrl)}`);
+      } else {
+        try {
         const callbackPayload = {
           success: false,
           cuento_id: parseInt(cuentoId),
@@ -356,7 +383,7 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
           failed_at: new Date().toISOString()
         };
 
-        const callbackResponse = await fetch(callbackUrl, {
+        const callbackResponse = await fetch(parsed.toString(), {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
@@ -368,12 +395,16 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
         const raw = await callbackResponse.text().catch(() => '');
         if (callbackResponse.ok) {
           console.log('✅ [BACKGROUND] Callback OK');
+        } else if (callbackResponse.status === 409) {
+          console.warn(`⚠️ [BACKGROUND] Callback 409 (ignorado): ${callbackResponse.status} ${callbackResponse.statusText}`);
+          if (raw) console.warn(`⚠️ [BACKGROUND] Callback body: ${String(raw).slice(0, 400)}`);
         } else {
           console.warn(`⚠️ [BACKGROUND] Callback falló: ${callbackResponse.status} ${callbackResponse.statusText}`);
           console.warn(`⚠️ [BACKGROUND] Callback body: ${String(raw || '').slice(0, 400)}`);
         }
-      } catch (callbackErr) {
-        console.error('❌ [BACKGROUND] Error notificando error:', callbackErr.message);
+        } catch (callbackErr) {
+          console.error('❌ [BACKGROUND] Error notificando error:', callbackErr.message);
+        }
       }
     }
   }
