@@ -41,14 +41,11 @@ async function serveFlipbook(res, subdomain) {
 
     const safeNombre = escapeHtml(c.nombre_nino || 'Tu Cuento');
     const safeCodigo = escapeHtml(c.codigo_unico || '');
-    const paidBadge = c.estado === 'pagado'
-      ? '<span class="badge ok">✅ Pago completado</span>'
-      : '<span class="badge warn">⚠️ Pago pendiente</span>';
 
     const html = flipbookHtml({
       safeNombre,
       safeCodigo,
-      paidBadge,
+  paidBadge: '',
       pagesHtml,
       imageCount,
       BOOK_ASPECT,

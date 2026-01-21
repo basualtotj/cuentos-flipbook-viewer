@@ -8,217 +8,20 @@ const { getRequestHost, parseSubdomainFromHost, safeJoin, sendHtml, sendJson, re
 const { handleCrearCuento } = require('./src/routes/api');
 const { handleGenerateCuento } = require('./src/routes/generate');
 const { serveFlipbook } = require('./src/routes/flipbook');
+const { handleSubdomainRequest } = require('./src/routes/subdomain');
 const { landingHtml } = require('./src/views/landing');
 const { pool } = require('./src/config/db');
 
-function generationStatusHtml({ subdomain }) {
-  const safeSub = escapeHtml(subdomain || '');
-
-  return `<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Generando tu cuento…</title>
-  <style>
-    :root{
-      --bg:#0f0f12;
-      --panel:rgba(255,255,255,.06);
-      --txt:#f5f5f7;
-      --muted:rgba(245,245,247,.75);
-      --ok:#4ade80;
-      --warn:#fbbf24;
-      --err:#f87171;
-      --brand:#667eea;
-      --maxw: 860px;
-    }
-    *{ box-sizing:border-box; }
-    html, body{ height:100%; }
-    body{
-      margin:0;
-      padding:22px 14px 28px;
-      background:var(--bg);
-      color:var(--txt);
-      font-family: Arial, sans-serif;
-      overflow-x:hidden;
-    }
-    .wrap{
-      width:min(96vw, var(--maxw));
-      margin:0 auto;
-      display:flex;
-      flex-direction:column;
-      gap:14px;
-    }
-    .card{
-      background:var(--panel);
-      border-radius:14px;
-      padding:16px;
-      min-width:0;
-    }
-    h1{ margin:0 0 6px; font-size:22px; }
-    .muted{ color:var(--muted); }
-    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    .badge{ padding:6px 10px; border-radius:999px; font-size:13px; font-weight:700; }
-    .badge.ok{ background: rgba(34,197,94,.18); color: var(--ok); }
-    .badge.warn{ background: rgba(251,191,36,.18); color: var(--warn); }
-    .badge.err{ background: rgba(248,113,113,.18); color: var(--err); }
-    .bar{
-      width:100%;
-      height:12px;
-      border-radius:999px;
-      background: rgba(255,255,255,.10);
-      overflow:hidden;
-    }
-    .bar > div{
-      height:100%;
-      width:0%;
-      background: linear-gradient(90deg, var(--brand), #7c3aed);
-      transition: width 220ms ease;
-    }
-    .kvs{ display:grid; grid-template-columns: 1fr; gap:8px; }
-    .kv{ display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-    .kv .k{ color:var(--muted); }
-    .actions{ display:flex; gap:10px; flex-wrap:wrap; }
-    a.btn, button.btn{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:8px;
-      padding:10px 14px;
-      border-radius:12px;
-      border:0;
-      cursor:pointer;
-      text-decoration:none;
-      color:#fff;
-      background: rgba(102,126,234,0.95);
-      font-size:15px;
-      max-width:100%;
-    }
-    a.btn.secondary{ background: rgba(255,255,255,0.14); }
-    .small{ font-size:13px; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Generando tu cuento…</h1>
-      <div class="muted">Subdominio: <strong>${safeSub}</strong></div>
-    </div>
-
-    <div class="card">
-      <div class="row" style="margin-bottom:10px;">
-        <span id="badge" class="badge warn">⏳ Iniciando…</span>
-        <span id="headline" class="muted">Puedes esperar aquí o revisar tu correo en ~10 min.</span>
-      </div>
-
-      <div class="bar" aria-label="Progreso">
-        <div id="barFill"></div>
-      </div>
-
-      <div class="kvs" style="margin-top:12px;">
-        <div class="kv"><span class="k">Paso</span><span id="step">—</span></div>
-        <div class="kv"><span class="k">Progreso</span><span id="progressText">0%</span></div>
-        <div class="kv"><span class="k">Detalle</span><span id="message" class="muted">Esperando estado…</span></div>
-      </div>
-
-      <div class="actions" style="margin-top:14px;">
-        <a id="openBtn" class="btn" href="#" style="display:none;">📖 Abrir cuento</a>
-        <a class="btn secondary" href="/" title="Volver al cuento">Ir al cuento</a>
-      </div>
-
-      <div class="muted small" style="margin-top:14px;">
-        Si algo falla, escríbenos con tu código o subdominio para ayudarte más rápido.
-      </div>
-    </div>
-  </div>
-
-  <script>
-    (function(){
-      const badge = document.getElementById('badge');
-      const headline = document.getElementById('headline');
-      const barFill = document.getElementById('barFill');
-      const stepEl = document.getElementById('step');
-      const progressText = document.getElementById('progressText');
-      const messageEl = document.getElementById('message');
-      const openBtn = document.getElementById('openBtn');
-
-      function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
-      function toInt(v){ const n = parseInt(String(v || ''), 10); return Number.isFinite(n) ? n : null; }
-      function qs(){ return new URLSearchParams(location.search); }
-
-      function buildStatusUrl(){
-        const p = qs();
-        const cuentoId = p.get('cuento_id');
-        const codigo = p.get('codigo');
-        if (cuentoId && codigo) {
-          return '/api/cuentos/status?cuento_id=' + encodeURIComponent(cuentoId) + '&codigo=' + encodeURIComponent(codigo);
-        }
-        const sd = ${JSON.stringify(String(subdomain || ''))};
-        return '/api/cuentos/status?subdomain=' + encodeURIComponent(sd);
-      }
-
-      function render(data){
-        const estado = String(data.estado || '').toLowerCase();
-        const step = String(data.step || '');
-        const msg = String(data.message || '');
-        const current = toInt(data.current);
-        const total = toInt(data.total);
-
-        stepEl.textContent = step || '—';
-        messageEl.textContent = msg || '—';
-
-        let pct = 0;
-        if (Number.isFinite(current) && Number.isFinite(total) && total > 0) {
-          pct = clamp(Math.round((current / total) * 100), 0, 100);
-        }
-  progressText.textContent = String(pct) + '%';
-  barFill.style.width = String(pct) + '%';
-
-        if (estado === 'listo') {
-          badge.className = 'badge ok';
-          badge.textContent = '✅ Listo';
-          headline.textContent = '¡Tu cuento está listo!';
-          if (data.ready_url) {
-            openBtn.href = String(data.ready_url);
-            openBtn.style.display = 'inline-flex';
-          }
-          return 'done';
-        }
-
-        if (estado === 'error') {
-          badge.className = 'badge err';
-          badge.textContent = '⚠️ Hubo un problema';
-          headline.textContent = 'Estamos revisándolo. Intenta más tarde o contáctanos.';
-          return 'done';
-        }
-
-        // pendiente / generando
-        badge.className = 'badge warn';
-        badge.textContent = '⏳ Generando cuento ✅';
-        return 'continue';
-      }
-
-      async function poll(){
-        const url = buildStatusUrl();
-        try {
-          const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
-          const data = await r.json();
-          const state = render(data);
-          if (state === 'done') return;
-        } catch (e) {
-          // Silencioso, seguimos intentando
-          messageEl.textContent = 'Conectando…';
-        }
-
-        setTimeout(poll, 2500);
-      }
-
-      // Solo aplica si viene de pago exitoso o si el usuario entra directo a /status
-      poll();
-    })();
-  </script>
-</body>
-</html>`;
+async function serveStatusPage(req, res) {
+  try {
+    const filePath = safeJoin(__dirname, 'public', 'status.html');
+    const html = await fs.readFile(filePath, 'utf8');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(html);
+  } catch (e) {
+    console.error('Error sirviendo status.html:', e);
+    return sendHtml(res, 500, 'Error servidor');
+  }
 }
 
 function serveLandingPage(req, res) {
@@ -1118,27 +921,8 @@ const server = http.createServer(async (req, res) => {
   return serveLandingPage(req, res);
   }
 
-  // Subdominio -> Flipbook
-  const subdomain = parseSubdomainFromHost(cleanHost);
-  if (!subdomain) {
-    return sendHtml(res, 404, 'No encontrado');
-  }
-
-  // Pantalla de estado en subdominio
-  // - /status siempre muestra el progreso
-  // - /?pago=exitoso muestra progreso (redirigible desde Stripe)
-  try {
-    const urlObj = new URL(req.url, `http://${cleanHost}`);
-    const isStatusPath = urlObj.pathname === '/status';
-    const isPagoExitoso = urlObj.searchParams.get('pago') === 'exitoso';
-    if (req.method === 'GET' && (isStatusPath || (urlObj.pathname === '/' && isPagoExitoso))) {
-      return sendHtml(res, 200, generationStatusHtml({ subdomain }));
-    }
-  } catch {
-    // ignore URL parse errors
-  }
-
-  return serveFlipbook(res, subdomain);
+  // Subdominio -> status / flipbook
+  return handleSubdomainRequest(req, res, { cleanHost, serveStatusPage });
 });
 
 server.listen(PORT, '0.0.0.0', () => {

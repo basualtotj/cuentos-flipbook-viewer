@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Generando tu cuento…</title>
+
+  <!-- Reutiliza Tailwind build (si está disponible) -->
+  <link rel="stylesheet" href="/css/tw.css" />
+
+  <style>
+    :root{
+      --bg: #fff;
+      --text: #1c1b22;
+      --muted: rgba(28,27,34,.72);
+      --card: rgba(255,255,255,.92);
+      --border: rgba(31, 33, 39, .10);
+      --shadow: 0 18px 60px rgba(17, 24, 39, .12);
+      --shadow-soft: 0 10px 26px rgba(17, 24, 39, .08);
+      --r-xl: 26px;
+      --r-lg: 18px;
+      --r-md: 14px;
+      --r-sm: 12px;
+      --maxw: 960px;
+
+      /* palette (kids friendly) */
+      --p1: #E88B7B; /* coral */
+      --p2: #D4C5E8; /* lavender */
+      --p3: #A8D5BA; /* mint */
+      --p4: #BCE3F5; /* sky */
+      --p5: #FFD4B8; /* peach */
+      --p6: #F5C8D8; /* pink */
+
+      --focus: 0 0 0 4px rgba(232, 139, 123, .22);
+
+      --ok: #16a34a;
+      --warn: #f59e0b;
+      --err: #ef4444;
+    }
+
+    *{ box-sizing: border-box; }
+
+    html, body{ height:100%; max-width:100%; overflow-x:hidden; }
+
+    body{
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(900px 600px at 15% 10%, rgba(212,197,232,.30), transparent 70%),
+        radial-gradient(900px 600px at 85% 15%, rgba(168,213,186,.25), transparent 70%),
+        radial-gradient(900px 700px at 55% 90%, rgba(255,212,184,.22), transparent 70%),
+        linear-gradient(180deg, #fff 0%, #fff9f5 100%);
+      font-family: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      line-height: 1.45;
+    }
+
+    img, svg{ max-width: 100%; height: auto; }
+
+    a{ color: inherit; text-decoration: none; }
+    a:focus-visible, button:focus-visible{
+      outline: none;
+      box-shadow: var(--focus);
+      border-radius: 14px;
+    }
+
+    .wrap{
+      width: min(96vw, var(--maxw));
+      margin: 0 auto;
+      padding: 24px 0 34px;
+      min-width: 0;
+    }
+
+    .top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+      min-width: 0;
+    }
+
+    .brand{
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      min-width: 0;
+    }
+
+    .brand-badge{
+      width: 42px;
+      height: 42px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--p1), var(--p2));
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      box-shadow: 0 14px 26px rgba(232, 139, 123, .22);
+      flex: 0 0 auto;
+    }
+
+    .brand-badge svg{ width: 22px; height: 22px; color: #fff; }
+
+    .brand-text{ min-width: 0; }
+    .brand-text .title{ font-size: 14px; opacity: .78; font-weight: 900; }
+    .brand-text .sub{ font-size: 12px; color: rgba(28,27,34,.58); font-weight: 800; }
+
+    .card{
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-xl);
+      box-shadow: var(--shadow);
+      padding: 18px;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .hero{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    h1{ margin: 0; font-size: 26px; letter-spacing: -0.02em; }
+    .muted{ color: var(--muted); }
+
+    .pill{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(232,139,123,.22);
+      background: linear-gradient(90deg, rgba(232,139,123,.10), rgba(212,197,232,.10));
+      color: rgba(28,27,34,.85);
+      font-weight: 900;
+      font-size: 12px;
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .progress-wrap{ margin-top: 14px; }
+
+    .bar{
+      width: 100%;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(31,33,39,.08);
+      overflow: hidden;
+      border: 1px solid rgba(31,33,39,.08);
+    }
+
+    .bar > div{
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--p1), var(--p2));
+      transition: width 220ms ease;
+    }
+
+    .kvs{ margin-top: 14px; display:grid; grid-template-columns: 1fr; gap: 10px; min-width: 0; }
+
+    .kv{
+      display:grid;
+      grid-template-columns: 140px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      min-width: 0;
+    }
+
+    .kv .k{ color: rgba(28,27,34,.62); font-weight: 900; font-size: 13px; }
+    .kv .v{ font-weight: 900; min-width: 0; }
+    .kv .v.muted{ font-weight: 800; }
+
+    @media (max-width: 640px){
+      .wrap{ width: min(96vw, 960px); padding: 18px 0 26px; }
+      .card{ padding: 16px; border-radius: 22px; }
+      h1{ font-size: 22px; }
+      .kv{ grid-template-columns: 1fr; gap: 6px; }
+    }
+
+    .actions{
+      margin-top: 16px;
+      display:flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap: 10px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 0;
+      cursor: pointer;
+      font-weight: 900;
+      font-size: 15px;
+      color: #fff;
+      max-width: 100%;
+      min-width: 0;
+      box-shadow: 0 18px 34px rgba(232,139,123,.22);
+      transition: transform .15s ease, box-shadow .15s ease;
+      background: linear-gradient(90deg, var(--p1), var(--p2));
+      text-decoration: none;
+    }
+
+    .btn:hover{ transform: translateY(-1px); box-shadow: 0 22px 40px rgba(232,139,123,.26); }
+
+    .btn.secondary{
+      background: rgba(255,255,255,.9);
+      color: rgba(28,27,34,.88);
+      border: 1px solid rgba(31,33,39,.14);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .btn.secondary:hover{ transform: translateY(-1px); box-shadow: 0 14px 28px rgba(17,24,39,.10); }
+
+    .btn[aria-disabled="true"]{
+      opacity: .55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap: 8px;
+      font-weight: 900;
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(31,33,39,.12);
+      background: rgba(255,255,255,.9);
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .badge.ok{ color: var(--ok); border-color: rgba(22,163,74,.25); background: rgba(22,163,74,.08); }
+    .badge.warn{ color: #a16207; border-color: rgba(245,158,11,.28); background: rgba(245,158,11,.10); }
+    .badge.err{ color: #b91c1c; border-color: rgba(239,68,68,.25); background: rgba(239,68,68,.08); }
+
+    .footnote{ margin-top: 14px; font-size: 12px; font-weight: 800; color: rgba(28,27,34,.62); }
+    .support{ font-size: 12px; font-weight: 900; color: rgba(28,27,34,.74); }
+
+    .error-detail{ margin-top: 8px; font-size: 12px; color: rgba(28,27,34,.62); font-weight: 800; }
+
+    /* Prevent accidental overflow from long tokens */
+    .break-anywhere{ overflow-wrap:anywhere; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="top">
+      <a class="brand" href="/" aria-label="Volver al inicio">
+        <span class="brand-badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M6 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2"/>
+            <path d="M8 7h7M8 11h7M8 15h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="brand-text">
+          <div class="title">Cuentos Para Siempre</div>
+          <div class="sub">Estado de tu cuento</div>
+        </span>
+      </a>
+
+      <span id="subdomainPill" class="pill break-anywhere" title="Subdominio">Subdominio: —</span>
+    </div>
+
+    <section class="card" aria-live="polite">
+      <div class="hero">
+        <div style="min-width:0;">
+          <h1>Generando tu cuento…</h1>
+          <div id="headline" class="muted" style="margin-top:6px; font-weight:900;">Puedes esperar aquí o revisar tu correo en ~10 min.</div>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <span id="badge" class="badge warn">⏳ Iniciando…</span>
+        </div>
+      </div>
+
+      <div class="progress-wrap">
+        <div class="bar" aria-label="Progreso">
+          <div id="barFill"></div>
+        </div>
+      </div>
+
+      <div class="kvs">
+        <div class="kv">
+          <div class="k">Paso</div>
+          <div id="step" class="v break-anywhere">—</div>
+        </div>
+        <div class="kv">
+          <div class="k">Progreso</div>
+          <div id="progressText" class="v">0%</div>
+        </div>
+        <div class="kv">
+          <div class="k">Detalle</div>
+          <div id="message" class="v muted break-anywhere">Esperando estado…</div>
+        </div>
+      </div>
+
+      <div id="errorDetail" class="error-detail" style="display:none;"></div>
+
+      <div class="actions">
+        <a id="openBtn" class="btn" href="/" aria-disabled="true" style="display:none;">📖 Abrir cuento</a>
+        <a class="btn secondary" href="/" title="Ir al cuento">Volver</a>
+      </div>
+
+      <div class="footnote">
+        <div>Consejo: mantén esta pestaña abierta. Actualizaremos automáticamente.</div>
+        <div class="support" style="margin-top:6px;">Si hay un problema, contáctanos con tu código/subdominio.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function(){
+      const POLL_MS = 2500;
+
+      const badge = document.getElementById('badge');
+      const headline = document.getElementById('headline');
+      const barFill = document.getElementById('barFill');
+      const stepEl = document.getElementById('step');
+      const progressText = document.getElementById('progressText');
+      const messageEl = document.getElementById('message');
+      const openBtn = document.getElementById('openBtn');
+      const errorDetail = document.getElementById('errorDetail');
+      const subdomainPill = document.getElementById('subdomainPill');
+
+      function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+      function toInt(v){
+        const n = parseInt(String(v ?? ''), 10);
+        return Number.isFinite(n) ? n : null;
+      }
+
+      function qs(){ return new URLSearchParams(window.location.search); }
+
+      function getSubdomain(){
+        const host = String(window.location.hostname || '');
+        const first = host.split('.')[0] || '';
+        // si entra por localhost o dominio sin subdominio, first será el host completo.
+        return first;
+      }
+
+      function buildStatusUrl(){
+        const p = qs();
+        const cuentoId = p.get('cuento_id');
+        const codigo = p.get('codigo');
+
+        if (cuentoId && codigo) {
+          return '/api/cuentos/status?cuento_id=' + encodeURIComponent(cuentoId) + '&codigo=' + encodeURIComponent(codigo);
+        }
+
+        const subdomain = getSubdomain();
+        return '/api/cuentos/status?subdomain=' + encodeURIComponent(subdomain);
+      }
+
+      function setBadge(kind, text){
+        badge.className = 'badge ' + kind;
+        badge.textContent = text;
+      }
+
+      function setProgress(percent){
+        const pct = clamp(Math.round(Number(percent) || 0), 0, 100);
+        progressText.textContent = String(pct) + '%';
+        barFill.style.width = String(pct) + '%';
+      }
+
+      function isImageStep(step){
+        const s = String(step || '').toLowerCase();
+        return s.includes('image') || s.includes('imagen') || s.includes('images') || s.includes('ilustr');
+      }
+
+      function render(data){
+        const estado = String(data?.estado || '').toLowerCase();
+        const step = String(data?.step || '');
+        const msg = String(data?.message || '');
+        const current = toInt(data?.current);
+        const total = toInt(data?.total);
+        const percent = (data?.percent !== undefined && data?.percent !== null) ? Number(data.percent) : null;
+
+        const sd = getSubdomain();
+        if (sd) subdomainPill.textContent = 'Subdominio: ' + sd;
+
+        stepEl.textContent = step || '—';
+
+        // Mensaje refinado para ilustraciones
+        if (isImageStep(step) && Number.isFinite(current) && Number.isFinite(total) && total > 0) {
+          messageEl.textContent = 'Generando ilustración ' + String(current) + ' de ' + String(total) + (msg ? ' · ' + msg : '');
+        } else {
+          messageEl.textContent = msg || '—';
+        }
+
+        errorDetail.style.display = 'none';
+        errorDetail.textContent = '';
+
+        // Preferir percent directo del backend, si existe
+        if (Number.isFinite(percent)) setProgress(percent);
+        else if (Number.isFinite(current) && Number.isFinite(total) && total > 0) setProgress((current / total) * 100);
+        else setProgress(0);
+
+        // Estados
+        if (estado === 'listo') {
+          setBadge('ok', '✅ Listo');
+          headline.textContent = '¡Tu cuento está listo!';
+
+          const ready = String(data?.ready_url || '/');
+          openBtn.href = ready || '/';
+          openBtn.style.display = 'inline-flex';
+          openBtn.setAttribute('aria-disabled', 'false');
+          return 'done';
+        }
+
+        if (estado === 'error') {
+          setBadge('err', '⚠️ Hubo un problema');
+          headline.textContent = 'Hubo un problema generando tu cuento. Reintentaremos automáticamente o contáctanos con tu código/subdominio.';
+
+          const backendDetail = String(data?.error_message || '').trim();
+          if (backendDetail) {
+            errorDetail.style.display = 'block';
+            errorDetail.textContent = backendDetail;
+          }
+
+          openBtn.style.display = 'none';
+          return 'done';
+        }
+
+        // pendiente | pagado | generando
+        setBadge('warn', '⏳ Generando…');
+        headline.textContent = 'Puedes esperar aquí o revisar tu correo en ~10 min.';
+        openBtn.style.display = 'none';
+        return 'continue';
+      }
+
+      async function poll(){
+        const url = buildStatusUrl();
+        try {
+          const r = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+          const data = await r.json();
+          const state = render(data);
+          if (state === 'done') return;
+        } catch (e) {
+          setBadge('warn', '⏳ Conectando…');
+          messageEl.textContent = 'Estamos conectando…';
+        }
+
+        window.setTimeout(poll, POLL_MS);
+      }
+
+      poll();
+    })();
+  </script>
+</body>
+</html>
