@@ -4,3 +4,4 @@ node_modules/
 
 # Local-only UX server (do not deploy)
 ux-server.js
+test-claude.js
