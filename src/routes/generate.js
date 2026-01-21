@@ -11,6 +11,91 @@ const {
 const fs = require('fs').promises;
 const path = require('path');
 
+async function updateProgress(cuentoId, payload) {
+  const base = {
+    step: 'starting',
+    percent: 0,
+    message: 'Iniciando…',
+    updated_at: new Date().toISOString()
+  };
+
+  const merged = {
+    ...base,
+    ...(payload || {}),
+    updated_at: new Date().toISOString()
+  };
+
+  // Solo el background job escribe progreso_json y error_message.
+  await pool.execute(
+    'UPDATE cuentos SET progreso_json = ? WHERE id = ?',
+    [JSON.stringify(merged), cuentoId]
+  );
+}
+
+async function markError(cuentoId, humanMessage) {
+  const msg = String(humanMessage || 'Ocurrió un error durante la generación');
+  try {
+    await pool.execute(
+      'UPDATE cuentos SET estado = ?, error_message = ? WHERE id = ?',
+      ['error', msg, cuentoId]
+    );
+  } catch (e) {
+    console.error('❌ [BACKGROUND] Error guardando error_message:', e);
+  }
+
+  try {
+    await updateProgress(cuentoId, {
+      step: 'error',
+      percent: 100,
+      message: msg
+    });
+  } catch (e) {
+    console.error('❌ [BACKGROUND] Error guardando progreso_json (error):', e);
+  }
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isReplicateThrottlingError(err) {
+  const msg = (err && err.message ? String(err.message) : String(err || '')).toLowerCase();
+  return msg.includes('throttl') || msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('429');
+}
+
+async function generateImageWithThrottleRetry(prompt, options = {}) {
+  const baseDelayMs = typeof options.baseDelayMs === 'number' ? options.baseDelayMs : 8000;
+  const retryBackoffMs = Array.isArray(options.retryBackoffMs) ? options.retryBackoffMs : [8000, 12000, 16000];
+
+  // Requirement: delay base (~8000ms) between *each* generation.
+  await sleep(baseDelayMs);
+
+  try {
+    return await generateImage(prompt);
+  } catch (err) {
+    // Requirement: retry ONLY on throttling.
+    if (!isReplicateThrottlingError(err)) {
+      throw err;
+    }
+
+    for (let i = 0; i < retryBackoffMs.length; i++) {
+      const delayMs = retryBackoffMs[i];
+      console.warn(`🔄 [BACKGROUND] Replicate throttled. Retry ${i + 1}/${retryBackoffMs.length} in ${Math.round(delayMs / 1000)}s`);
+      await sleep(delayMs);
+
+      try {
+        return await generateImage(prompt);
+      } catch (retryErr) {
+        if (!isReplicateThrottlingError(retryErr)) {
+          throw retryErr;
+        }
+      }
+    }
+
+    throw err;
+  }
+}
+
 async function handleGenerateCuento(req, res, sendJson) {
   try {
     const body = await readBody(req);
@@ -88,6 +173,12 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
   try {
     console.log(`🎨 [BACKGROUND] Iniciando generación de cuento ID: ${cuentoId}`);
 
+    await updateProgress(cuentoId, {
+      step: 'starting',
+      percent: 0,
+      message: 'Iniciando generación…'
+    });
+
     const payload = JSON.parse(cuento.payload_json);
     const subdomain = cuento.subdomain;
 
@@ -95,6 +186,12 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
 
     // 1. Generar historia con Claude
     const story = await generateStory(payload);
+
+    await updateProgress(cuentoId, {
+      step: 'story_generated',
+      percent: 10,
+      message: 'Historia generada'
+    });
     
     console.log(`✅ [BACKGROUND] Historia generada: "${story.titulo}"`);
     console.log(`🖼️  [BACKGROUND] Generando ${story.escenas.length} ilustraciones...`);
@@ -112,20 +209,63 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
     await renderDedicatoria(story.dedicatoria, path.join(flipbookPath, '2.jpg'));
     console.log('✅ [BACKGROUND] Dedicatoria generada');
 
+    await updateProgress(cuentoId, {
+      step: 'cover_dedicatoria',
+      percent: 20,
+      message: 'Portada y dedicatoria listas'
+    });
+
     // 5. Generar escenas (ilustraciones + textos alternados)
-    for (let i = 0; i < story.escenas.length; i++) {
+  const totalImages = Array.isArray(story.escenas) ? story.escenas.length : 0;
+  for (let i = 0; i < story.escenas.length; i++) {
       const escena = story.escenas[i];
       const ilustracionNum = i * 2 + 3; // 3, 5, 7, 9...
       const textoNum = i * 2 + 4;       // 4, 6, 8, 10...
 
       console.log(`🎨 [BACKGROUND] Generando ilustración ${i + 1}/10...`);
+
+      // Progreso real antes de pedir la imagen
+      // Percent dinámico 20% -> 95% durante el loop
+      const loopStart = 20;
+      const loopEnd = 95;
+      const doneBefore = i;
+      const percentBefore = totalImages > 0
+        ? Math.round(loopStart + ((loopEnd - loopStart) * (doneBefore / totalImages)))
+        : loopStart;
+      await updateProgress(cuentoId, {
+        step: 'images',
+        current: i,
+        total: totalImages,
+        percent: percentBefore,
+        message: `Generando ilustración ${i + 1} de ${totalImages}…`
+      });
       
       // Generar ilustración con FLUX
-      const imageUrl = await generateImage(escena.prompt_imagen);
+      // Requisitos:
+      // - No paralelizar generateImage (loop secuencial + await)
+      // - Delay base de ~8s entre cada generación
+      // - Retry SOLO si es throttling, con backoff progresivo
+      const imageUrl = await generateImageWithThrottleRetry(escena.prompt_imagen, {
+        baseDelayMs: 8000,
+        retryBackoffMs: [8000, 12000, 16000]
+      });
       const imageBuffer = await downloadImage(imageUrl);
       await fs.writeFile(path.join(flipbookPath, `${ilustracionNum}.jpg`), imageBuffer);
       
       console.log(`✅ [BACKGROUND] Ilustración ${i + 1} guardada (${ilustracionNum}.jpg)`);
+
+      // Progreso real después de terminar la imagen
+      const doneAfter = i + 1;
+      const percentAfter = totalImages > 0
+        ? Math.round(loopStart + ((loopEnd - loopStart) * (doneAfter / totalImages)))
+        : loopEnd;
+      await updateProgress(cuentoId, {
+        step: 'images',
+        current: doneAfter,
+        total: totalImages,
+        percent: percentAfter,
+        message: `Ilustración ${doneAfter} de ${totalImages} lista`
+      });
 
       // Generar página de texto con Puppeteer
       await renderTextPage(escena.texto_narrativo, path.join(flipbookPath, `${textoNum}.jpg`));
@@ -135,6 +275,12 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
     // 6. Generar contraportada (22.jpg)
     await renderContraportada(story.mensaje_final, path.join(flipbookPath, '22.jpg'));
     console.log('✅ [BACKGROUND] Contraportada generada');
+
+    await updateProgress(cuentoId, {
+      step: 'final',
+      percent: 98,
+      message: 'Finalizando…'
+    });
 
     // 7. Actualizar BD
     await pool.execute(
@@ -146,6 +292,12 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
        WHERE id = ?`,
       [subdomain, cuentoId]
     );
+
+    await updateProgress(cuentoId, {
+      step: 'final',
+      percent: 100,
+      message: 'Cuento listo'
+    });
 
     const timeTaken = ((Date.now() - startTime) / 1000).toFixed(1);
     
@@ -186,16 +338,9 @@ async function generateCuentoBackground(cuentoId, cuento, callbackUrl) {
 
   } catch (err) {
     console.error('❌ [BACKGROUND] Error generando cuento:', err);
-    
-    // Actualizar BD con error
-    try {
-      await pool.execute(
-        'UPDATE cuentos SET estado = ? WHERE id = ?',
-        ['error', cuentoId]
-      );
-    } catch (dbErr) {
-      console.error('❌ [BACKGROUND] Error actualizando BD:', dbErr);
-    }
+
+  // Actualizar BD con error + progreso_json/error_message
+  await markError(cuentoId, err && err.message ? err.message : String(err));
 
     // Notificar error vía callback
     if (callbackUrl) {
