@@ -1298,7 +1298,7 @@ const landingHtml = `<!doctype html>
                         <div class="field-row">
                           <div class="field">
                             <label>Tu nombre <span class="optional">(opcional)</span></label>
-                            <input type="text" name="nombre_comprador" placeholder="Carolina" />
+                            <input type="text" name="nombre_comprador" placeholder="Soledad" />
                           </div>
 
                           <div class="field">

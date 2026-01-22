@@ -6,6 +6,38 @@ const { flipbookHtml } = require('../views/flipbook');
 
 async function serveFlipbook(res, subdomain) {
   try {
+    // Local preview: permite ver viewer + modal sin DB.
+    // En producción esta rama nunca debería usarse.
+    const LOCAL_PREVIEW = String(process.env.LOCAL_PREVIEW || '').toLowerCase() === '1';
+    if (LOCAL_PREVIEW) {
+      const folder = 'cuento-prueba';
+      const imageCount = 23;
+      const BOOK_ASPECT = 2.8285714;
+
+      const pagesHtml = Array.from({ length: imageCount }, (_, idx) => {
+        const turnPage = idx + 1;
+        const imgIndex = turnPage - 1;
+        const src = `/flipbooks/${encodeURIComponent(folder)}/${imgIndex}.jpg?v=${imgIndex}`;
+        return `<div class="page"><img src="${src}" alt="Página ${turnPage}" loading="eager" decoding="async"></div>`;
+      }).join('\n');
+
+      const safeNombre = escapeHtml('Vista previa');
+      const safeCodigo = escapeHtml('LOCAL');
+
+      // Forzamos ?pago=exitoso para abrir modal automáticamente.
+      // El polling fallará si no hay DB, pero sirve para validar UI/estilos.
+      const html = flipbookHtml({
+        safeNombre,
+        safeCodigo,
+        paidBadge: '',
+        pagesHtml,
+        imageCount,
+        BOOK_ASPECT,
+      });
+
+      return sendHtml(res, 200, html);
+    }
+
     const [rows] = await pool.execute(
       'SELECT id, subdomain, nombre_nino, codigo_unico, estado, vistas, flipbook_path FROM cuentos WHERE subdomain = ? LIMIT 1',
       [subdomain]

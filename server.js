@@ -12,9 +12,18 @@ const { handleSubdomainRequest } = require('./src/routes/subdomain');
 const { landingHtml } = require('./src/views/landing');
 const { pool } = require('./src/config/db');
 
+// Modo local (DX): permite ver el landing en http://127.0.0.1:<PORT>/ sin depender del Host.
+// En producción debe permanecer apagado.
+const LOCAL_PREVIEW = String(process.env.LOCAL_PREVIEW || '').toLowerCase() === '1';
+
 async function serveStatusPage(req, res) {
   try {
-    const filePath = safeJoin(__dirname, 'public', 'status.html');
+    const filePath = path.join(__dirname, 'public', 'status.html');
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) {
+      throw new Error(`status.html no es un archivo: ${filePath}`);
+    }
+
     const html = await fs.readFile(filePath, 'utf8');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(html);
@@ -536,13 +545,101 @@ async function serveStatic(req, res) {
   }
 }
 
+// Estáticos generales (solo DX): sirve /public completo en modo local preview
+async function serveStaticLocalPreview(req, res) {
+  if (String(process.env.LOCAL_PREVIEW || '').toLowerCase() !== '1') return false;
+
+  // Permitimos css/js/img/fonts desde /public
+  const filePath = safeJoin(PUBLIC_DIR, req.url);
+  if (!filePath) return false;
+
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) return false;
+
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType =
+      (ext === '.html') ? 'text/html; charset=utf-8' :
+      (ext === '.css') ? 'text/css; charset=utf-8' :
+      (ext === '.js') ? 'application/javascript; charset=utf-8' :
+      (ext === '.json') ? 'application/json; charset=utf-8' :
+      (ext === '.svg') ? 'image/svg+xml' :
+      (ext === '.ico') ? 'image/x-icon' :
+      (ext === '.png') ? 'image/png' :
+      (ext === '.jpg' || ext === '.jpeg') ? 'image/jpeg' :
+      (ext === '.webp') ? 'image/webp' :
+      (ext === '.woff') ? 'font/woff' :
+      (ext === '.woff2') ? 'font/woff2' :
+      null;
+
+    if (!contentType) return false;
+
+    const data = await fs.readFile(filePath);
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': 'no-store'
+    });
+    res.end(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ====== Server ======
 const server = http.createServer(async (req, res) => {
   // 1) Estáticos (JPG)
   if (await serveStatic(req, res)) return;
 
+  // 1.b) Estáticos generales (solo local preview)
+  if (await serveStaticLocalPreview(req, res)) return;
+
   const cleanHost = getRequestHost(req);
+  const isLocalHost = cleanHost === 'localhost' || cleanHost === '127.0.0.1';
   const isMainDomain = cleanHost === MAIN_DOMAIN || cleanHost === `www.${MAIN_DOMAIN}`;
+
+  // ===== Local preview routes (DX) =====
+  // Objetivo: permitir ver el flujo completo en browser SIN depender de subdominios/hosts.
+  // - No afecta producción (solo con LOCAL_PREVIEW=1)
+  if (LOCAL_PREVIEW && isLocalHost && req.method === 'GET') {
+    try {
+      const urlObj = new URL(req.url, `http://${cleanHost}`);
+
+      // 1) /?pago=exitoso en localhost -> sirve status.html
+      if (urlObj.pathname === '/' && urlObj.searchParams.get('pago') === 'exitoso') {
+        return await serveStatusPage(req, res);
+      }
+
+      // 2) /preview/<sub>/... -> simula subdominio en path
+      //    - /preview/carla/               => flipbook (con modal)
+      //    - /preview/carla/status         => status
+      //    - /preview/carla/?pago=exitoso  => status
+      const m = urlObj.pathname.match(/^\/preview\/([^/]+)(\/.*)?$/);
+      if (m) {
+        const previewSub = decodeURIComponent(m[1] || '').trim();
+        const rest = m[2] || '/';
+
+        // Reescribimos URL para que el router de subdominio funcione igual
+        const innerUrlObj = new URL(rest + urlObj.search, `http://${cleanHost}`);
+        const isStatusPath = innerUrlObj.pathname === '/status';
+        const isPagoExitoso = innerUrlObj.searchParams.get('pago') === 'exitoso';
+
+        if (isStatusPath || (innerUrlObj.pathname === '/' && isPagoExitoso)) {
+          return await serveStatusPage(req, res);
+        }
+
+        // Flipbook (local): forzamos el modal al cargar para simular post-pago
+        req.url = (innerUrlObj.pathname || '/') + innerUrlObj.search;
+        if (!/([?&])local_preview=1(\b|&|$)/.test(req.url)) {
+          req.url += (req.url.includes('?') ? '&' : '?') + 'local_preview=1';
+        }
+
+        return serveFlipbook(res, previewSub);
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   // API
   // POST /api/crear-cuento
@@ -917,8 +1014,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Landing
-  if (isMainDomain) {
-  return serveLandingPage(req, res);
+  // - Producción: solo en dominio principal
+  // - Local: opcionalmente también en localhost/127.0.0.1 para pruebas visibles en browser
+  if (isMainDomain || (LOCAL_PREVIEW && isLocalHost)) {
+    return serveLandingPage(req, res);
   }
 
   // Subdominio -> status / flipbook
